@@ -32,10 +32,15 @@ export function NearbyMap({
   const html = useMemo(
     () => `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<style>html,body,#m{margin:0;height:100%;background:${dark ? '#0B1220' : '#EEF2F6'}}.leaflet-control-attribution{font-size:9px}</style></head>
+<style>html,body,#m{margin:0;height:100%;background:${dark ? '#0B1220' : '#EEF2F6'}}.leaflet-control-attribution{font-size:9px}
+${dark ? '.leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.9) contrast(.9)}' : ''}</style></head>
 <body><div id="m"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>
 var map=L.map('m',{zoomControl:false,attributionControl:true}).setView([${center.latitude},${center.longitude}],15);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/${dark ? 'dark_all' : 'rastertiles/voyager'}/{z}/{x}/{y}{r}.png',{maxZoom:19,subdomains:'abcd',attribution:'&copy; OpenStreetMap &copy; CARTO'}).addTo(map);
+// OpenStreetMap tiles (no API key). If they fail to load, switch once to Esri's street map.
+var osm=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+var errors=0,switched=false;
+osm.on('tileerror',function(){if(switched||++errors<3)return;switched=true;map.removeLayer(osm);
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Tiles &copy; Esri &mdash; OpenStreetMap'}).addTo(map);});
 L.circleMarker([${center.latitude},${center.longitude}],{radius:8,color:'#fff',weight:3,fillColor:'#2563EB',fillOpacity:1}).addTo(map);
 var layer=L.layerGroup().addTo(map);
 window.render=function(pins){layer.clearLayers();pins.forEach(function(p){
