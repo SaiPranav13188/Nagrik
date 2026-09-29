@@ -5,8 +5,9 @@ services:
     runtime: docker
     rootDir: backend
     dockerfilePath: ./Dockerfile
-    # Headless Chromium needs memory; "standard" (2 GB) is the comfortable minimum.
-    plan: standard
+    # "free" works for testing and live mode (Wanaparthy's portal needs OTP, so Chromium rarely runs).
+    # For heavy sandbox/auto-submit use, upgrade to "standard" (2 GB) — requires a card on Render.
+    plan: free
     healthCheckPath: /health
     envVars:
       - key: PORT
