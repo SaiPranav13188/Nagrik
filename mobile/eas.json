@@ -1,0 +1,34 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://nagrik-backend-uopu.onrender.com",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://kusqeuwqglqweabolitq.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt1c3FldXdxZ2xxd2VhYm9saXRxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA2NjU2NDAsImV4cCI6MjEwNjI0MTY0MH0.RcxK92yX-fD05MH77E_l8nBzAMnQVVJuFhCJ0DvtYjU"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://nagrik-backend-uopu.onrender.com",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://kusqeuwqglqweabolitq.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt1c3FldXdxZ2xxd2VhYm9saXRxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA2NjU2NDAsImV4cCI6MjEwNjI0MTY0MH0.RcxK92yX-fD05MH77E_l8nBzAMnQVVJuFhCJ0DvtYjU"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}
