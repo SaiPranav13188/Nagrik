@@ -15,7 +15,10 @@ const app = express();
 app.set('trust proxy', 1);
 app.use(helmet({ contentSecurityPolicy: false, crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(cors());
-app.use(express.json({ limit: '1mb' }));
+// Photos arrive base64-encoded on the analyze route; everything else stays small.
+const jsonSmall = express.json({ limit: '1mb' });
+const jsonPhoto = express.json({ limit: '15mb' });
+app.use((req, res, next) => (req.path === '/complaints/analyze' ? jsonPhoto : jsonSmall)(req, res, next));
 app.use(express.urlencoded({ extended: false }));
 
 // One line per request in the Render logs, so failures are easy to trace.

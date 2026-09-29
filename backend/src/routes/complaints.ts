@@ -82,6 +82,9 @@ const analyzeBody = z.object({
   manualAddress: z.string().max(300).optional(),
   note: z.string().max(500).optional(),
   clarificationAnswer: z.enum(ISSUE_TYPES).optional(),
+  // Photo as base64 in a JSON body — works with every fetch implementation (multipart does not).
+  photoBase64: z.string().max(14_000_000).optional(),
+  photoMimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']).optional(),
 });
 
 complaintsRouter.post('/analyze', analyzeLimiter, upload.single('photo'), async (req, res) => {
@@ -94,6 +97,12 @@ complaintsRouter.post('/analyze', analyzeLimiter, upload.single('photo'), async 
 
   let photoUrl = b.photoUrl;
   if (req.file) photoUrl = await savePhoto(req.userId, req.file.buffer, req.file.mimetype);
+  else if (b.photoBase64) {
+    const buf = Buffer.from(b.photoBase64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+    if (buf.length < 100) return res.status(400).json({ error: 'The photo could not be read. Please try again.' });
+    if (buf.length > 10 * 1024 * 1024) return res.status(413).json({ error: 'Photo is too large (max 10 MB).' });
+    photoUrl = await savePhoto(req.userId, buf, b.photoMimeType ?? 'image/jpeg');
+  }
   if (!photoUrl) return res.status(400).json({ error: 'Please add a photo of the issue.' });
 
   const intakeId = b.intakeId ?? randomUUID();

@@ -23,15 +23,30 @@ type Loc =
   | { kind: 'manual' }
   | { kind: 'denied' };
 
-async function compress(uri: string, width?: number) {
+/** Resizes to ≤1600px, JPEG-compresses, and returns base64 for upload (≈200–500 KB). */
+async function compress(uri: string, width?: number): Promise<{ uri: string; base64: string | null }> {
   try {
     const ctx = ImageManipulator.manipulate(uri);
     if (!width || width > 1600) ctx.resize({ width: 1600 });
     const img = await ctx.renderAsync();
-    const out = await img.saveAsync({ compress: 0.72, format: SaveFormat.JPEG });
-    return out.uri;
+    const out = await img.saveAsync({ compress: 0.72, format: SaveFormat.JPEG, base64: true });
+    return { uri: out.uri, base64: out.base64 ?? (await readBase64(out.uri)) };
   } catch {
-    return uri; // Upload the original rather than fail.
+    return { uri, base64: await readBase64(uri) }; // Upload the original rather than fail.
+  }
+}
+
+async function readBase64(uri: string): Promise<string | null> {
+  try {
+    const blob = await (await fetch(uri)).blob();
+    return await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result.split(',')[1] ?? null : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
   }
 }
 
@@ -44,6 +59,7 @@ export default function Report() {
   const insets = useSafeAreaInsets();
 
   const [photo, setPhoto] = useState<string | null>(null);
+  const [photoBase64, setPhotoBase64] = useState<string | null>(null);
   const [loc, setLoc] = useState<Loc>({ kind: 'pending' });
   const [manualAddress, setManualAddress] = useState('');
   const [note, setNote] = useState('');
@@ -100,13 +116,19 @@ export default function Report() {
     const r = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.85, exif: false });
     if (!r.canceled && r.assets[0]) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      setPhoto(await compress(r.assets[0].uri, r.assets[0].width));
+      const p = await compress(r.assets[0].uri, r.assets[0].width);
+      setPhoto(p.uri);
+      setPhotoBase64(p.base64);
     }
   };
 
   const pickPhoto = async () => {
     const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.85, exif: false });
-    if (!r.canceled && r.assets[0]) setPhoto(await compress(r.assets[0].uri, r.assets[0].width));
+    if (!r.canceled && r.assets[0]) {
+      const p = await compress(r.assets[0].uri, r.assets[0].width);
+      setPhoto(p.uri);
+      setPhotoBase64(p.base64);
+    }
   };
 
   // ───────── analyze ─────────
@@ -118,7 +140,7 @@ export default function Report() {
     setClarify(null);
     try {
       const r = await api.analyze({
-        ...(extra && clarify ? { photoUrl: clarify.photoUrl, intakeId: clarify.intakeId, clarificationAnswer: extra.clarificationAnswer } : { photoUri: photo! }),
+        ...(extra && clarify ? { photoUrl: clarify.photoUrl, intakeId: clarify.intakeId, clarificationAnswer: extra.clarificationAnswer } : (photoBase64 ? { photoBase64 } : { photoUri: photo! })),
         ...(loc.kind === 'gps' ? { latitude: loc.latitude, longitude: loc.longitude } : {}),
         manualAddress: loc.kind === 'gps' ? undefined : manualAddress.trim(),
         note: note.trim() || undefined,
@@ -264,6 +286,7 @@ export default function Report() {
             onPress={() => {
               setRejected(null);
               setPhoto(null);
+              setPhotoBase64(null);
             }}
           />
         </View>

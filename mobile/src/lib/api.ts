@@ -83,6 +83,7 @@ export const api = {
   complaint: (id: string) => request<ComplaintDetail>(`/complaints/${id}/status`),
 
   async analyze(input: {
+    photoBase64?: string;
     photoUri?: string;
     photoUrl?: string;
     intakeId?: string;
@@ -92,8 +93,23 @@ export const api = {
     note?: string;
     clarificationAnswer?: IssueType;
   }) {
+    const fields = {
+      photoUrl: input.photoUrl,
+      intakeId: input.intakeId,
+      latitude: input.latitude,
+      longitude: input.longitude,
+      manualAddress: input.manualAddress,
+      note: input.note,
+      clarificationAnswer: input.clarificationAnswer,
+    };
+    // Preferred path: JSON with a base64 photo. Multipart with {uri,name,type} file objects is not
+    // supported by every fetch implementation (it fails before reaching the server on newer Expo).
+    if (input.photoBase64 || !input.photoUri) {
+      const body = Object.fromEntries(Object.entries({ ...fields, photoBase64: input.photoBase64, photoMimeType: input.photoBase64 ? 'image/jpeg' : undefined }).filter(([, v]) => v !== undefined && v !== null && v !== ''));
+      return request<AnalyzeResult>('/complaints/analyze', { method: 'POST', body, timeoutMs: 120000 });
+    }
     const form = new FormData();
-    if (input.photoUri) await appendPhoto(form, input.photoUri);
+    await appendPhoto(form, input.photoUri);
     for (const k of ['photoUrl', 'intakeId', 'latitude', 'longitude', 'manualAddress', 'note', 'clarificationAnswer'] as const) {
       const v = input[k];
       if (v !== undefined && v !== null && v !== '') form.append(k, String(v));
