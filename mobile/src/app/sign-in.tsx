@@ -9,6 +9,9 @@ import { useAuth } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
 import { space, useTheme } from '../theme';
 
+/** Must match Supabase → Authentication → Email → "Email OTP Length". */
+const OTP_LENGTH = Number(process.env.EXPO_PUBLIC_OTP_LENGTH) || 6;
+
 export default function SignIn() {
   const { c } = useTheme();
   const { t } = useI18n();
@@ -46,7 +49,7 @@ export default function SignIn() {
   };
 
   const verify = async (value = code) => {
-    if (value.length !== 6) return;
+    if (value.length !== OTP_LENGTH) return;
     setBusy(true);
     try {
       await verifyEmailCode(email, value);
@@ -90,18 +93,18 @@ export default function SignIn() {
           />
         ) : (
           <Input
-            placeholder="••••••"
+            placeholder={"•".repeat(OTP_LENGTH)}
             value={code}
             onChangeText={(v) => {
-              const d = v.replace(/\D/g, '').slice(0, 6);
+              const d = v.replace(/\D/g, '').slice(0, OTP_LENGTH);
               setCode(d);
               setError(null);
-              if (d.length === 6) void verify(d);
+              if (d.length === OTP_LENGTH) void verify(d);
             }}
             keyboardType="number-pad"
             autoComplete="one-time-code"
             textContentType="oneTimeCode"
-            maxLength={6}
+            maxLength={OTP_LENGTH}
             error={error}
             style={{ fontSize: 28, letterSpacing: 12, textAlign: 'center' }}
             autoFocus
@@ -113,7 +116,7 @@ export default function SignIn() {
           <Button title={t('sendCode')} onPress={send} loading={busy} icon="paper-plane-outline" />
         ) : (
           <View style={{ gap: space(3) }}>
-            <Button title={t('verify')} onPress={() => verify()} loading={busy} disabled={code.length !== 6} />
+            <Button title={t('verify')} onPress={() => verify()} loading={busy} disabled={code.length !== OTP_LENGTH} />
             <Button title={cooldown ? `${t('resendCode')} (${cooldown})` : t('resendCode')} variant="ghost" disabled={!!cooldown || busy} onPress={send} />
           </View>
         )}

@@ -70,7 +70,8 @@ export const api = {
   health: () => request<{ ok: boolean; ai: string; portal_mode: string; auth: string }>('/health', { auth: false, timeoutMs: 6000 }),
   localSignIn: (deviceId: string) => request<{ token: string; userId: string; profile: Profile }>('/auth/local', { method: 'POST', body: { deviceId }, auth: false }),
 
-  me: () => request<{ profile: Profile }>('/me'),
+  // Long timeout: the first request after the server sleeps can take ~60s to wake it.
+  me: () => request<{ profile: Profile }>('/me', { timeoutMs: 75000 }),
   updateMe: (patch: Partial<Pick<Profile, 'full_name' | 'phone' | 'email' | 'preferred_language' | 'auto_submit_default'>>) =>
     request<{ profile: Profile }>('/me', { method: 'PUT', body: patch }),
   setPushToken: (token: string | null) => request('/me/push-token', { method: 'POST', body: { token } }),

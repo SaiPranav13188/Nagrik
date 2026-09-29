@@ -2,7 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import * as Crypto from 'expo-crypto';
-import { api, configureApi } from './api';
+import { api, ApiError, configureApi } from './api';
 import { SUPABASE_ANON_KEY, SUPABASE_URL, USE_SUPABASE_AUTH } from './config';
 import { prefs, secure } from './storage';
 import type { Profile } from './types';
@@ -21,6 +21,8 @@ type Status = 'loading' | 'signedOut' | 'signedIn';
 interface AuthValue {
   status: Status;
   profile: Profile | null;
+  /** Set when the profile could not be loaded after retries (server asleep, offline…). */
+  profileError: string | null;
   mode: 'supabase' | 'local';
   refreshProfile: () => Promise<Profile | null>;
   setProfile: (p: Profile) => void;
@@ -39,6 +41,7 @@ export function isProfileComplete(p: Profile | null) {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<Status>('loading');
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
   const localToken = useRef<string | null>(null);
 
   const getToken = useCallback(async () => {
@@ -54,6 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localToken.current = null;
     await secure.remove(TOKEN_KEY);
     setProfile(null);
+    setProfileError(null);
     setStatus('signedOut');
   }, []);
 
@@ -62,13 +66,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [getToken, signOut]);
 
   const refreshProfile = useCallback(async () => {
-    try {
-      const { profile } = await api.me();
-      setProfile(profile);
-      return profile;
-    } catch {
-      return null;
+    // The server may be waking up (Render free plan sleeps), so retry a couple of times
+    // before surfacing an error — never leave the app stuck on the splash screen.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const { profile } = await api.me();
+        setProfile(profile);
+        setProfileError(null);
+        return profile;
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) return null; // signOut already handled
+        if (attempt === 2) {
+          setProfileError(e instanceof ApiError && e.message !== 'NETWORK' ? e.message : 'NETWORK');
+          return null;
+        }
+        await new Promise((r) => setTimeout(r, 3000));
+      }
     }
+    return null;
   }, []);
 
   // Restore session on launch.
@@ -135,6 +150,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       status,
       profile,
+      profileError,
       mode: supabase ? 'supabase' : 'local',
       refreshProfile,
       setProfile,
@@ -143,7 +159,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       verifyEmailCode,
       signOut,
     }),
-    [status, profile, refreshProfile, startLocalSession, sendEmailCode, verifyEmailCode, signOut],
+    [status, profile, profileError, refreshProfile, startLocalSession, sendEmailCode, verifyEmailCode, signOut],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

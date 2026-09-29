@@ -1,5 +1,6 @@
 import 'react-native-url-polyfill/auto';
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
 import { View } from 'react-native';
 import { Stack, router } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -7,7 +8,8 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, Inter_800ExtraBold } from '@expo-google-fonts/inter';
 import { AuthProvider, isProfileComplete, useAuth } from '../lib/auth';
-import { I18nProvider } from '../lib/i18n';
+import { I18nProvider, useI18n } from '../lib/i18n';
+import { Button, Text } from '../components/ui';
 import { onNotificationTap } from '../lib/notifications';
 import { ToastProvider } from '../components/Toast';
 import { useTheme } from '../theme';
@@ -15,10 +17,12 @@ import { useTheme } from '../theme';
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 function RootNavigator() {
-  const { status, profile } = useAuth();
+  const { status, profile, profileError, refreshProfile, signOut } = useAuth();
   const { c, dark } = useTheme();
+  const { t } = useI18n();
+  const [retrying, setRetrying] = useState(false);
   const signedIn = status === 'signedIn';
-  const ready = status !== 'loading' && (!signedIn || profile !== null);
+  const ready = status !== 'loading' && (!signedIn || profile !== null || !!profileError);
   const complete = isProfileComplete(profile);
 
   useEffect(() => {
@@ -31,6 +35,29 @@ function RootNavigator() {
   }, []);
 
   if (!ready) return <View style={{ flex: 1, backgroundColor: '#0F766E' }} />;
+
+  // Signed in but the server couldn't be reached — offer a retry instead of hanging.
+  if (signedIn && !profile && profileError) {
+    return (
+      <View style={{ flex: 1, backgroundColor: c.bg, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 16 }}>
+        <Ionicons name="cloud-offline-outline" size={48} color={c.muted} />
+        <Text variant="title" style={{ textAlign: 'center' }}>{t('cantConnect')}</Text>
+        <Text tone="muted" style={{ textAlign: 'center' }}>{profileError === 'NETWORK' ? t('cantConnectBody') : profileError}</Text>
+        <Button
+          title={t('retry')}
+          icon="refresh"
+          loading={retrying}
+          style={{ alignSelf: 'stretch' }}
+          onPress={async () => {
+            setRetrying(true);
+            await refreshProfile();
+            setRetrying(false);
+          }}
+        />
+        <Button title={t('signOut')} variant="ghost" onPress={() => void signOut()} />
+      </View>
+    );
+  }
 
   return (
     <>
@@ -56,8 +83,9 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
-  const [fontsLoaded] = useFonts({ Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, Inter_800ExtraBold });
-  if (!fontsLoaded) return null;
+  const [fontsLoaded, fontError] = useFonts({ Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, Inter_800ExtraBold });
+  // If fonts fail to load, continue with system fonts rather than a blank screen.
+  if (!fontsLoaded && !fontError) return null;
   return (
     <SafeAreaProvider>
       <I18nProvider>
