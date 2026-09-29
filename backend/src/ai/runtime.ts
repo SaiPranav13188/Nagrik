@@ -90,6 +90,52 @@ function geminiModel(): LanguageModel {
   return google(config.geminiModel);
 }
 
+// ───────────── Gemini circuit breaker ─────────────
+// When Google rejects calls for quota/rate limits, stop calling it for a while and let every
+// agent run on the offline planner instead of failing (free tier limits are low).
+// Paused per model: Google's quotas are per model, so the vision model running out
+// shouldn't stop the reasoning model (and vice versa).
+const pausedUntil = new Map<string, number>();
+const streaks = new Map<string, number>();
+
+export function isQuotaError(e: unknown) {
+  const m = String((e as Error)?.message ?? e);
+  return /quota|rate.?limit|RESOURCE_EXHAUSTED|429|exceeded/i.test(m);
+}
+
+export function noteGeminiError(e: unknown, model: string = config.geminiModel) {
+  if (!isQuotaError(e)) return;
+  const m = String((e as Error)?.message ?? e);
+  const retry = Number(m.match(/retry in ([\d.]+)s/i)?.[1] ?? 60);
+  const streak = Math.min((streaks.get(model) ?? 0) + 1, 6);
+  streaks.set(model, streak);
+  const pauseMs = Math.min(Math.max(retry, 60) * 1000 * 2 ** (streak - 1), 30 * 60 * 1000);
+  pausedUntil.set(model, Date.now() + pauseMs);
+  console.warn(`[gemini] ${model} quota/rate limit hit — offline fallback for ${Math.round(pauseMs / 1000)}s`);
+}
+
+export function geminiAvailable(model: string = config.geminiModel) {
+  return useGemini && Date.now() >= (pausedUntil.get(model) ?? 0);
+}
+
+function noteGeminiSuccess(model: string = config.geminiModel) {
+  streaks.set(model, 0);
+}
+
+/** Tools with no side effects: re-running them on the offline planner after a Gemini failure is safe. */
+const READ_ONLY_TOOLS = new Set([
+  'analyze_photo',
+  'reverse_geocode',
+  'lookup_jurisdiction',
+  'web_search',
+  'get_complaint_context',
+  'draft_complaint_text',
+  'get_form_selectors',
+  'detect_captcha',
+  'get_complaint_timeline',
+  'list_submitted_complaints_needing_check',
+]);
+
 export async function runAgent<I>(
   def: AgentDefinition<I>,
   input: I,
@@ -116,22 +162,25 @@ export async function runAgent<I>(
         tools,
         stopWhen: [stepCountIs(def.maxSteps ?? 10), ...(def.stopOnTools ?? []).map((t) => hasToolCall(t))],
         temperature: 0.2,
-        maxRetries: 2,
+        maxRetries: 1,
       });
       return { text: res.text, toolCalls: record, complaintId: ctx.complaintId, model: label, fellBackOffline: fellBack };
     } catch (e) {
-      (e as any).__toolCallsMade = record.length;
+      (e as any).__toolCalls = record.map((r) => r.toolName);
       throw e;
     }
   };
 
   const offline = () => attempt(createOfflineModel(def.name, def.offlinePolicy), 'offline-planner', !!useGemini);
 
-  if (!useGemini) return offline();
+  if (!geminiAvailable()) return offline();
   try {
-    return await attempt(geminiModel(), config.geminiModel, false);
+    const r = await attempt(geminiModel(), config.geminiModel, false);
+    noteGeminiSuccess();
+    return r;
   } catch (e) {
-    const made = (e as any).__toolCallsMade ?? 0;
+    noteGeminiError(e);
+    const done: string[] = (e as any).__toolCalls ?? [];
     await repo.addToolLog({
       agent_name: def.name,
       complaint_id: ctx.complaintId,
@@ -141,17 +190,18 @@ export async function runAgent<I>(
       duration_ms: null,
       error: (e as Error).message,
     });
-    // Only fall back if no side-effecting tool ran yet; otherwise surface the error.
-    if (made === 0) return offline();
+    // Fall back to the offline planner unless a side-effecting tool already ran (then the
+    // offline rerun could duplicate work) — in that case surface the error.
+    if (done.every((t) => READ_ONLY_TOOLS.has(t))) return offline();
     throw e;
   }
 }
 
 /** Single-shot structured/vision helper used *inside* tools (e.g. analyze_photo). */
 export function visionModel(): LanguageModel | null {
-  return useGemini ? google(config.geminiVisionModel) : null;
+  return geminiAvailable(config.geminiVisionModel) ? google(config.geminiVisionModel) : null;
 }
 
 export function textModel(): LanguageModel | null {
-  return useGemini ? google(config.geminiModel) : null;
+  return geminiAvailable() ? google(config.geminiModel) : null;
 }

@@ -19,8 +19,10 @@ export const config = {
 
   // AI
   geminiApiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || '',
-  geminiModel: process.env.GEMINI_MODEL || 'gemini-flash-latest',
-  geminiVisionModel: process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-flash-latest',
+  // Agent reasoning makes many calls per complaint → the Lite model (higher free-tier limits).
+  // Photo analysis is one call per complaint → the full Flash model. Quotas are per model.
+  geminiModel: process.env.GEMINI_MODEL || 'gemini-flash-lite-latest',
+  geminiVisionModel: process.env.GEMINI_VISION_MODEL || 'gemini-flash-latest',
 
   // Data
   supabaseUrl: process.env.SUPABASE_URL || '',

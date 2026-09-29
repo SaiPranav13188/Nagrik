@@ -1,10 +1,11 @@
 import { generateText, Output, tool } from 'ai';
 import { z } from 'zod';
+import { config } from '../config.js';
 import { repo } from '../db/index.js';
 import { ISSUE_TYPES, type IssueType } from '../db/types.js';
 import { reverseGeocode } from '../services/geocode.js';
 import { loadPhoto } from '../services/storage.js';
-import { visionModel, type AgentDefinition } from '../ai/runtime.js';
+import { noteGeminiError, visionModel, type AgentDefinition } from '../ai/runtime.js';
 
 export interface IntakeInput {
   /** Pre-allocated complaint id so every intake tool call is logged against it (also across a clarification round-trip). */
@@ -87,8 +88,8 @@ Keep descriptions factual and formal; never invent details not visible in the ph
         inputSchema: z.object({ focus_hint: z.string().optional().describe('Optional hint, e.g. the citizen note.') }),
         execute: async ({ focus_hint }) => {
           const model = visionModel();
-          if (!model) {
-            // Offline: no vision. Use the citizen's own words if they gave any; else be honest.
+          const offlineAnalysis = () => {
+            // No vision available: use the citizen's own words if they gave any; else be honest.
             const guess = keywordGuess(`${input.userNote ?? ''} ${focus_hint ?? ''}`);
             return {
               is_civic_issue: true,
@@ -104,7 +105,9 @@ Keep descriptions factual and formal; never invent details not visible in the ph
               rejection_reason: null,
               mode: 'offline_no_vision',
             };
-          }
+          };
+          if (!model) return offlineAnalysis();
+          try {
           const photo = await loadPhoto(input.photoUrl);
           const { output } = await generateText({
             model,
@@ -129,8 +132,13 @@ Citizen note: ${input.userNote || 'none'}. ${focus_hint ? `Hint: ${focus_hint}` 
                 ],
               },
             ],
+            maxRetries: 1,
           });
           return output;
+          } catch (e) {
+            noteGeminiError(e, config.geminiVisionModel);
+            return offlineAnalysis();
+          }
         },
       }),
 

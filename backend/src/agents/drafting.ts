@@ -2,7 +2,7 @@ import { generateText, Output, tool } from 'ai';
 import { z } from 'zod';
 import { repo } from '../db/index.js';
 import type { Complaint, Jurisdiction, Profile } from '../db/types.js';
-import { textModel, type AgentDefinition } from '../ai/runtime.js';
+import { noteGeminiError, textModel, type AgentDefinition } from '../ai/runtime.js';
 import { ISSUE_LABELS } from './intake.js';
 
 export interface DraftingInput {
@@ -96,6 +96,7 @@ Procedure: call get_complaint_context, then draft_complaint_text (pass the porta
           const j = c.jurisdiction_portal_id ? await repo.getJurisdiction(c.jurisdiction_portal_id) : null;
           const p = await repo.getProfile(c.user_id);
           if (!model) return { ...templateDraft(c, j, p), mode: 'template' };
+          try {
           const { output } = await generateText({
             model,
             output: Output.object({ schema: draftSchema }),
@@ -104,8 +105,13 @@ Requirements from the portal: ${portal_requirements}
 Facts (use ONLY these, do not invent): ${context}
 Structure: "To / The <department>" line, respectful salutation, what the issue is, exact location (with Google Maps link if GPS known), since when / date reported, safety impact if any, a clear request for action, closing with the citizen's name and mobile.
 Plain text only. No markdown, no placeholders like [Name] — if a detail is unknown, omit it.`,
+            maxRetries: 1,
           });
           return { ...output, mode: 'llm' };
+          } catch (e) {
+            noteGeminiError(e);
+            return { ...templateDraft(c, j, p), mode: 'template' };
+          }
         },
       }),
 

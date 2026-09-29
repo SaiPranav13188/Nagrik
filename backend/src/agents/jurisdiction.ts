@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { config, useGemini } from '../config.js';
 import { repo } from '../db/index.js';
 import { ISSUE_TYPES, type Complaint, type IssueType, type Jurisdiction } from '../db/types.js';
-import { textModel, type AgentDefinition } from '../ai/runtime.js';
+import { noteGeminiError, textModel, type AgentDefinition } from '../ai/runtime.js';
 
 export interface JurisdictionInput {
   complaint: Complaint;
@@ -75,7 +75,8 @@ Portal mode: ${config.portalMode}`;
         description: 'Fallback only: search the web for the responsible department and official complaint portal.',
         inputSchema: z.object({ query: z.string() }),
         execute: async ({ query }) => {
-          if (!useGemini || !textModel()) return { available: false, message: 'Web search unavailable (no Gemini key configured).' };
+          if (!useGemini || !textModel()) return { available: false, message: 'Web search unavailable right now.' };
+          try {
           const res = await generateText({
             model: google(config.geminiModel),
             tools: { google_search: google.tools.googleSearch({}) },
@@ -85,6 +86,10 @@ Portal mode: ${config.portalMode}`;
             .filter((s) => s.sourceType === 'url')
             .map((s) => ({ url: (s as { url: string }).url, title: (s as { title?: string }).title ?? null }));
           return { answer: res.text.slice(0, 3000), sources: sources.slice(0, 8) };
+          } catch (e) {
+            noteGeminiError(e);
+            return { available: false, message: 'Web search unavailable right now.' };
+          }
         },
       }),
 

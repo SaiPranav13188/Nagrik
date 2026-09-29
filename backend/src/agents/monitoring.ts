@@ -5,7 +5,7 @@ import { repo } from '../db/index.js';
 import type { Complaint } from '../db/types.js';
 import { scrapeStatus } from '../automation/portal.js';
 import { notifyUser, sendEscalationEmail } from '../services/notify.js';
-import { runAgent, textModel, type AgentDefinition } from '../ai/runtime.js';
+import { noteGeminiError, runAgent, textModel, type AgentDefinition } from '../ai/runtime.js';
 import { ISSUE_LABELS } from './intake.js';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -110,6 +110,7 @@ Finish with a one-line summary of what you did.`,
           const days = Math.floor(daysSince(c.submitted_at));
           const model = textModel();
           if (model) {
+            try {
             const { output } = await generateText({
               model,
               output: Output.object({ schema: z.object({ subject: z.string().max(140), body: z.string().max(2500) }) }),
@@ -121,6 +122,9 @@ Original complaint:
 ${c.draft_text}`,
             });
             return { ...output, to: step.title, channel: step.channel };
+            } catch (e) {
+              noteGeminiError(e); // fall through to the template letter
+            }
           }
           const subject = `Escalation: unresolved complaint${c.tracking_id ? ` ${c.tracking_id}` : ''} – ${c.issue_type ? ISSUE_LABELS[c.issue_type] : 'civic issue'}`;
           const body = `To
