@@ -1,0 +1,42 @@
+{
+  "name": "nagrik-backend",
+  "version": "1.0.0",
+  "description": "Nagrik agentic civic complaint backend",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "test:harness": "tsx scripts/test-harness.ts",
+    "test:e2e": "tsx scripts/e2e.ts",
+    "eval:intake": "tsx scripts/eval-intake.ts",
+    "postinstall": "playwright install chromium || true"
+  },
+  "type": "module",
+  "dependencies": {
+    "@ai-sdk/google": "^4.0.85",
+    "@ai-sdk/provider": "^4.0.19",
+    "@supabase/supabase-js": "^2.117.2",
+    "ai": "^7.0.122",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.4",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.7.0",
+    "helmet": "^8.3.0",
+    "multer": "^2.4.0",
+    "node-cron": "^4.6.0",
+    "playwright": "^1.63.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.3.0",
+    "@types/node": "^26.6.3",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Nagrik Admin</title>
+<style>
+  :root { --bg:#f6f7fb; --card:#fff; --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --brand:#4338ca; --ok:#059669; --warn:#d97706; --bad:#dc2626; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.5 -apple-system,Segoe UI,Roboto,Inter,sans-serif; background:var(--bg); color:var(--ink); }
+  header { background:linear-gradient(135deg,#312e81,#4338ca); color:#fff; padding:18px 24px; display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:18px; letter-spacing:.2px; } header .sub { opacity:.8; font-size:12px; }
+  header input { margin-left:auto; padding:8px 10px; border-radius:8px; border:0; min-width:220px; }
+  nav { display:flex; gap:4px; padding:10px 24px; background:#fff; border-bottom:1px solid var(--line); overflow-x:auto; }
+  nav button { border:0; background:none; padding:8px 14px; border-radius:8px; cursor:pointer; color:var(--muted); font-weight:600; white-space:nowrap; }
+  nav button.active { background:#eef2ff; color:var(--brand); }
+  main { max-width:1200px; margin:20px auto; padding:0 16px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .kpi .v { font-size:26px; font-weight:700; } .kpi .l { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.5px; }
+  table { width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  th, td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { background:#f8fafc; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:600; }
+  .approved{background:#d1fae5;color:#065f46}.pending{background:#fef3c7;color:#92400e}.rejected{background:#fee2e2;color:#991b1b}
+  button.btn { border:0; border-radius:8px; padding:8px 12px; font-weight:600; cursor:pointer; background:var(--brand); color:#fff; }
+  button.ghost { background:#eef2ff; color:var(--brand); } button.danger { background:#fee2e2; color:#991b1b; }
+  textarea, input[type=text] { width:100%; border:1px solid var(--line); border-radius:8px; padding:8px; font:12px/1.4 ui-monospace,Consolas,monospace; }
+  pre { margin:0; white-space:pre-wrap; word-break:break-word; font:12px/1.4 ui-monospace,Consolas,monospace; max-height:180px; overflow:auto; }
+  .muted { color:var(--muted); } .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; } h2 { font-size:16px; margin:18px 0 10px; }
+  .err { color:var(--bad); }
+</style>
+</head>
+<body>
+<header>
+  <div><h1>🏛️ Nagrik — Admin Console</h1><div class="sub">Jurisdiction review · agent observability · sandbox controls</div></div>
+  <input id="key" type="password" placeholder="Admin API key" />
+</header>
+<nav id="tabs">
+  <button data-tab="overview" class="active">Overview</button>
+  <button data-tab="review">Review queue</button>
+  <button data-tab="mappings">All mappings</button>
+  <button data-tab="logs">Agent tool logs</button>
+  <button data-tab="sandbox">Sandbox portal</button>
+</nav>
+<main id="view"><p class="muted">Enter the admin key to load data.</p></main>
+<script>
+const $ = (s) => document.querySelector(s);
+const keyInput = $('#key');
+keyInput.value = localStorage.getItem('nagrikAdminKey') || '';
+keyInput.addEventListener('change', () => { localStorage.setItem('nagrikAdminKey', keyInput.value); render(); });
+let tab = 'overview';
+document.querySelectorAll('#tabs button').forEach((b) => b.onclick = () => {
+  document.querySelectorAll('#tabs button').forEach((x) => x.classList.remove('active'));
+  b.classList.add('active'); tab = b.dataset.tab; render();
+});
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function api(path, opts = {}) {
+  const r = await fetch('/admin' + path, { ...opts, headers: { 'content-type': 'application/json', 'x-admin-key': keyInput.value, ...(opts.headers || {}) } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+const pct = (v) => v == null ? '—' : Math.round(v * 100) + '%';
+
+async function render() {
+  const view = $('#view');
+  if (!keyInput.value) { view.innerHTML = '<p class="muted">Enter the admin key to load data.</p>'; return; }
+  view.innerHTML = '<p class="muted">Loading…</p>';
+  try { await ({ overview, review, mappings, logs, sandbox })[tab](view); }
+  catch (e) { view.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+
+async function overview(view) {
+  const s = await api('/stats');
+  const kpi = (l, v) => `<div class="card kpi"><div class="l">${l}</div><div class="v">${v}</div></div>`;
+  view.innerHTML = `
+    <div class="grid">
+      ${kpi('Submission attempts', s.submission_attempts)}
+      ${kpi('Automated success', pct(s.automated_success_rate))}
+      ${kpi('CAPTCHA block rate', pct(s.captcha_block_rate))}
+      ${kpi('Pending mappings', s.pending_jurisdictions)}
+    </div>
+    <h2>Complaints by status</h2>
+    <div class="grid">${Object.entries(s.complaints_by_status).map(([k, v]) => kpi(k.replace('_', ' '), v)).join('')}</div>
+    <h2>Automation outcomes</h2><div class="card"><pre>${esc(JSON.stringify(s.outcomes, null, 2))}</pre></div>
+    <h2>Manual-fallback reasons</h2><div class="card"><pre>${esc(JSON.stringify(s.manual_fallback_reasons, null, 2))}</pre></div>
+    <h2>Monitoring</h2>
+    <div class="card row"><button class="btn" id="runMon">Run monitoring sweep now (force)</button><span id="monOut" class="muted"></span></div>`;
+  $('#runMon').onclick = async () => {
+    $('#monOut').textContent = 'Running… (drives a real browser; may take a while)';
+    try { const r = await api('/monitor/run', { method: 'POST', body: JSON.stringify({ force: true }) }); $('#monOut').textContent = r.text || 'Done'; }
+    catch (e) { $('#monOut').textContent = e.message; }
+  };
+}
+
+function mappingRow(j, reviewable) {
+  return `<tr>
+    <td><b>${esc(j.city)}</b>, ${esc(j.state)}<div class="muted">${esc(j.issue_type)}${j.is_sandbox ? ' · sandbox' : ''}</div></td>
+    <td>${esc(j.department_name)}<div><a href="${esc(j.portal_url)}" target="_blank" rel="noopener">${esc(j.portal_url)}</a></div>
+      <div class="muted">selectors: ${j.form_selectors ? 'yes' : 'none'} · captcha/otp: ${j.requires_captcha ? 'yes' : 'no'}</div>
+      ${j.source_urls?.length ? `<div class="muted">sources: ${j.source_urls.map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(new URL(u).hostname)}</a>`).join(', ')}</div>` : ''}
+      <div class="muted">proposed by ${esc(j.proposed_by || '—')}</div></td>
+    <td><span class="pill ${j.review_status}">${j.review_status}</span></td>
+    <td style="min-width:320px">${reviewable ? `
+      <textarea rows="3" placeholder="Optional: form_selectors JSON (leave empty for manual-only)" data-sel="${j.id}"></textarea>
+      <input type="text" placeholder="Review comment" data-cmt="${j.id}" style="margin:6px 0"/>
+      <label class="muted"><input type="checkbox" data-cap="${j.id}" ${j.requires_captcha ? 'checked' : ''}/> requires CAPTCHA/OTP</label>
+      <div class="row" style="margin-top:6px"><button class="btn" data-approve="${j.id}">Approve</button><button class="btn danger" data-reject="${j.id}">Reject</button></div>` : `<span class="muted">${esc(j.review_comment || '')}</span>`}</td>
+  </tr>`;
+}
+
+async function review(view) {
+  const { jurisdictions } = await api('/jurisdictions?status=pending');
+  view.innerHTML = `<h2>Agent-proposed mappings awaiting review</h2>
+    <p class="muted">Nothing here is used for automatic submission until you approve it. Verify the department and portal against the listed official sources.</p>
+    ${jurisdictions.length ? `<table><tr><th>Area</th><th>Department / portal</th><th>Status</th><th>Decision</th></tr>${jurisdictions.map((j) => mappingRow(j, true)).join('')}</table>` : '<div class="card muted">🎉 Review queue is empty.</div>'}`;
+  const decide = async (id, decision) => {
+    const raw = document.querySelector(`[data-sel="${id}"]`).value.trim();
+    let form_selectors;
+    if (raw) { try { form_selectors = JSON.parse(raw); } catch { return alert('form_selectors is not valid JSON'); } }
+    await api('/jurisdiction/review', { method: 'POST', body: JSON.stringify({ id, decision, comment: document.querySelector(`[data-cmt="${id}"]`).value || undefined, requires_captcha: document.querySelector(`[data-cap="${id}"]`).checked, ...(form_selectors ? { form_selectors } : {}) }) });
+    render();
+  };
+  view.querySelectorAll('[data-approve]').forEach((b) => b.onclick = () => decide(b.dataset.approve, 'approve'));
+  view.querySelectorAll('[data-reject]').forEach((b) => b.onclick = () => decide(b.dataset.reject, 'reject'));
+}
+
+async function mappings(view) {
+  const { jurisdictions } = await api('/jurisdictions');
+  view.innerHTML = `<h2>All jurisdiction mappings (${jurisdictions.length})</h2>
+    <table><tr><th>Area</th><th>Department / portal</th><th>Status</th><th>Review note</th></tr>${jurisdictions.map((j) => mappingRow(j, false)).join('')}</table>`;
+}
+
+async function logs(view) {
+  const params = new URLSearchParams(location.hash.slice(1));
+  view.innerHTML = `<div class="card row"><input type="text" id="fc" placeholder="Filter by complaint id" value="${esc(params.get('c') || '')}" style="max-width:340px"/>
+    <input type="text" id="ft" placeholder="Filter by tool name" value="${esc(params.get('t') || '')}" style="max-width:240px"/><button class="btn" id="go">Filter</button></div><div id="tbl" style="margin-top:12px"></div>`;
+  const load = async () => {
+    const q = new URLSearchParams({ limit: '300' });
+    if ($('#fc').value) q.set('complaintId', $('#fc').value.trim());
+    if ($('#ft').value) q.set('tool', $('#ft').value.trim());
+    const { logs } = await api('/logs?' + q);
+    $('#tbl').innerHTML = `<table><tr><th>When</th><th>Agent · tool</th><th>Arguments</th><th>Result</th></tr>${logs.map((l) => `<tr>
+      <td class="muted" style="white-space:nowrap">${new Date(l.created_at).toLocaleString()}<div>${l.duration_ms ?? '—'} ms</div></td>
+      <td><b>${esc(l.tool_name)}</b><div class="muted">${esc(l.agent_name)}</div>${l.complaint_id ? `<div class="muted" style="font-size:11px">${esc(l.complaint_id)}</div>` : ''}${l.error ? `<div class="err">${esc(l.error)}</div>` : ''}</td>
+      <td><pre>${esc(JSON.stringify(l.arguments, null, 1))}</pre></td><td><pre>${esc(JSON.stringify(l.result, null, 1))}</pre></td></tr>`).join('')}</table>`;
+  };
+  $('#go').onclick = load; await load();
+}
+
+async function sandbox(view) {
+  const s = await api('/sandbox');
+  view.innerHTML = `<h2>Sandbox grievance portal</h2>
+    <div class="card row"><a href="/sandbox-portal" target="_blank">Open portal ↗</a>
+      <label><input type="checkbox" id="cap" ${s.captchaEnabled ? 'checked' : ''}/> Require CAPTCHA (tests the manual-fallback path)</label></div>
+    <h2>Grievances received (${s.grievances.length})</h2>
+    <table><tr><th>No.</th><th>Complaint</th><th>Status</th><th>Set status</th></tr>${[...s.grievances].reverse().map((g) => `<tr>
+      <td><b>${esc(g.no)}</b><div class="muted">${new Date(g.createdAt).toLocaleString()}</div></td>
+      <td><b>${esc(g.subject)}</b><div class="muted">${esc(g.name)} · ${esc(g.mobile)} · ${esc(g.category)}${g.hasPhoto ? ' · 📷' : ''}</div></td>
+      <td>${esc(g.status)}<div class="muted">${esc(g.remarks)}</div></td>
+      <td><div class="row"><select data-st="${esc(g.no)}"><option>Registered</option><option>Assigned to Section</option><option>In Progress</option><option>Resolved</option><option>Rejected</option></select>
+        <input type="text" placeholder="Officer remarks" data-rm="${esc(g.no)}" style="max-width:200px"/><button class="btn ghost" data-set="${esc(g.no)}">Update</button></div></td></tr>`).join('')}</table>`;
+  $('#cap').onchange = (e) => api('/sandbox/captcha', { method: 'POST', body: JSON.stringify({ enabled: e.target.checked }) });
+  view.querySelectorAll('[data-set]').forEach((b) => b.onclick = async () => {
+    const no = b.dataset.set;
+    await api('/sandbox/grievances/status', { method: 'POST', body: JSON.stringify({ no, status: document.querySelector(`[data-st="${no}"]`).value, remarks: document.querySelector(`[data-rm="${no}"]`).value }) });
+    render();
+  });
+}
+render();
+</script>
+</body>
+</html>

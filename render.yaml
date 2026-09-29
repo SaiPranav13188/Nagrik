@@ -1,0 +1,44 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: nagrik-backend
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    # Headless Chromium needs memory; "standard" (2 GB) is the comfortable minimum.
+    plan: standard
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 4000
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: ADMIN_API_KEY
+        generateValue: true
+      - key: CRON_SECRET
+        generateValue: true
+      - key: LOCAL_AUTH_SECRET
+        generateValue: true
+      - key: PORTAL_MODE
+        value: sandbox
+      - key: RESEND_API_KEY
+        sync: false
+      - key: ALLOW_LIVE_ESCALATION_EMAILS
+        value: "false"
+      # node-cron runs the daily sweep in-process. If you scale to >1 instance, set this to
+      # false and use the cron job below instead so the sweep runs exactly once.
+      - key: ENABLE_CRON
+        value: "true"
+
+  # Optional external trigger (disabled by default; enable if ENABLE_CRON=false).
+  # - type: cron
+  #   name: nagrik-monitor
+  #   runtime: docker
+  #   schedule: "30 3 * * *"   # 09:00 IST
+  #   dockerCommand: sh -c 'curl -fsS -X POST -H "x-cron-secret: $CRON_SECRET" $BACKEND_URL/jobs/monitor-complaints'
