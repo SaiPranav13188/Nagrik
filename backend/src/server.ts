@@ -18,6 +18,18 @@ app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false }));
 
+// One line per request in the Render logs, so failures are easy to trace.
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    if (req.path !== "/health") console.log(`${req.method} ${req.originalUrl.split("?")[0]} → ${res.statusCode} (${Date.now() - start} ms)`);
+  });
+  res.on('close', () => {
+    if (!res.writableFinished) console.warn(`${req.method} ${req.originalUrl.split("?")[0]} → connection closed by client after ${Date.now() - start} ms`);
+  });
+  next();
+});
+
 app.get('/health', (_req, res) => {
   res.json({
     ok: true,

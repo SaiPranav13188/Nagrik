@@ -10,4 +10,4 @@ RUN npm ci --ignore-scripts
 COPY . .
 
 EXPOSE 4000
-CMD ["npx", "tsx", "src/server.ts"]
+CMD ["node", "--import", "tsx", "src/server.ts"]
