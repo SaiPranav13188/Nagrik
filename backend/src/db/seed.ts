@@ -75,8 +75,10 @@ const LIVE_ESCALATION: EscalationStep[] = [
     level: 3,
     title: 'District Collector, Wanaparthy (Prajavani)',
     channel: 'portal',
-    contact: 'https://wanaparthy.telangana.gov.in/',
-    verified: false,
+    // Prajavani/CPGRAMS link published on https://wanaparthy.telangana.gov.in/ (checked 2026-09-29).
+    // Portal channel: the agent prepares the letter, the citizen submits it.
+    contact: 'http://cpgrams.ts.nic.in/',
+    verified: true,
   },
 ];
 
