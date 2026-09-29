@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Switch, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, Switch, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, Card, Divider, Input, Text } from '../../components/ui';
@@ -131,12 +131,12 @@ export default function ProfileTab() {
       <Text variant="small" tone="faint" style={{ textAlign: 'center' }}>{t('appName')} · {t('version', { v: APP_VERSION })}</Text>
 
       <Sheet visible={editOpen} onClose={() => setEditOpen(false)}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ gap: space(4) }}>
+        <View style={{ gap: space(4) }}>
           <Text variant="title">{t('personalDetails')}</Text>
           <Input label={t('fullName')} value={name} onChangeText={setName} icon="person-outline" autoCapitalize="words" />
           <Input label={t('mobile')} value={phone} onChangeText={setPhone} keyboardType="phone-pad" icon="call-outline" maxLength={16} />
           <Button title={t('save')} onPress={saveDetails} loading={busy} />
-        </KeyboardAvoidingView>
+        </View>
       </Sheet>
 
       <Sheet visible={sheet === 'lang'} onClose={() => setSheet(null)}>

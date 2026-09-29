@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { KeyboardAvoidingView, KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -62,8 +63,8 @@ export default function SignIn() {
   };
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: c.bg }}>
-      <ScrollView contentContainerStyle={{ padding: space(5), paddingTop: insets.top + space(3), gap: space(5), flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+    <KeyboardAvoidingView behavior="padding" style={{ flex: 1, backgroundColor: c.bg }}>
+      <KeyboardAwareScrollView bottomOffset={24} contentContainerStyle={{ padding: space(5), paddingTop: insets.top + space(3), gap: space(5), flexGrow: 1 }} keyboardShouldPersistTaps="handled">
         <Pressable onPress={() => (step === 'code' ? setStep('email') : router.back())} hitSlop={12} accessibilityLabel={t('back')} style={{ width: 40, height: 40, justifyContent: 'center' }}>
           <Ionicons name="arrow-back" size={24} color={c.ink} />
         </Pressable>
@@ -120,7 +121,7 @@ export default function SignIn() {
             <Button title={cooldown ? `${t('resendCode')} (${cooldown})` : t('resendCode')} variant="ghost" disabled={!!cooldown || busy} onPress={send} />
           </View>
         )}
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </KeyboardAvoidingView>
   );
 }

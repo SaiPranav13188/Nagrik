@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
+import { Platform, Pressable, View } from 'react-native';
+import { KeyboardAvoidingView, KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -60,7 +61,7 @@ export default function EditDraft() {
   const valid = (subject?.trim().length ?? 0) >= 5 && text.trim().length >= 50 && text.length <= 1500;
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: c.bg }}>
+    <KeyboardAvoidingView behavior="padding" style={{ flex: 1, backgroundColor: c.bg }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingTop: Platform.OS === 'ios' ? space(4) : insets.top + space(2), paddingHorizontal: space(4), paddingBottom: space(2) }}>
         <Pressable onPress={() => router.back()} hitSlop={12} accessibilityLabel={t('close')}>
           <Ionicons name="close" size={26} color={c.ink} />
@@ -74,11 +75,11 @@ export default function EditDraft() {
           <Skeleton height={300} />
         </View>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: space(4), gap: space(4) }} keyboardShouldPersistTaps="handled">
+        <KeyboardAwareScrollView bottomOffset={24} contentContainerStyle={{ padding: space(4), gap: space(4) }} keyboardShouldPersistTaps="handled">
           <Input label={t('subject')} value={subject} onChangeText={setSubject} maxLength={100} hint={t('charCount', { n: subject.length, max: 100 })} />
           <Input label={t('complaintText')} value={text} onChangeText={setText} multiline maxLength={1500} style={{ minHeight: 320, fontSize: 15, lineHeight: 22 }} hint={t('charCount', { n: text.length, max: 1500 })} />
           <Button title={t('regenerate')} variant="ghost" icon="sparkles-outline" size="md" loading={busy === 'ai'} onPress={regenerate} />
-        </ScrollView>
+        </KeyboardAwareScrollView>
       )}
       <View style={{ padding: space(4), paddingBottom: insets.bottom + space(3), borderTopWidth: 1, borderTopColor: c.line }}>
         <Button title={t('saveChanges')} icon="checkmark" onPress={save} loading={busy === 'save'} disabled={!valid || busy === 'ai'} />

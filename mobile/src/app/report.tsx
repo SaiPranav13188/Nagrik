@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Animated, Easing, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, View } from 'react-native';
+import { Alert, Animated, Easing, Linking, Platform, Pressable, View } from 'react-native';
+import { KeyboardAvoidingView, KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
@@ -185,7 +186,7 @@ export default function Report() {
   if (phase === 'analyzing') return <Analyzing photo={photo} />;
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: c.bg }}>
+    <KeyboardAvoidingView behavior="padding" style={{ flex: 1, backgroundColor: c.bg }}>
       <View style={{ paddingTop: insets.top + space(2), paddingHorizontal: space(4), paddingBottom: space(2), flexDirection: 'row', alignItems: 'center', gap: space(2) }}>
         <Pressable onPress={() => router.back()} hitSlop={12} accessibilityLabel={t('close')} style={{ width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface, borderWidth: 1, borderColor: c.line }}>
           <Ionicons name="close" size={22} color={c.ink} />
@@ -193,7 +194,7 @@ export default function Report() {
         <Text variant="heading" style={{ flex: 1, textAlign: 'center', marginRight: 40 }}>{t('reportTitle')}</Text>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: space(4), gap: space(4), paddingBottom: space(8) }} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScrollView bottomOffset={24} contentContainerStyle={{ padding: space(4), gap: space(4), paddingBottom: space(8) }} keyboardShouldPersistTaps="handled">
         {/* Photo */}
         {photo ? (
           <View style={{ borderRadius: radius.xl, overflow: 'hidden', ...shadow(3) }}>
@@ -267,7 +268,7 @@ export default function Report() {
 
         {/* Note */}
         <Input label={t('addDetails')} placeholder={t('detailsPlaceholder')} value={note} onChangeText={setNote} multiline maxLength={500} style={{ minHeight: 70 }} icon="chatbox-ellipses-outline" />
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       <View style={{ padding: space(4), paddingBottom: insets.bottom + space(3), backgroundColor: c.bg, borderTopWidth: 1, borderTopColor: c.line }}>
         <Button title={t('analyzeAndFile')} icon="sparkles" onPress={() => run()} disabled={!photo || !locationReady} />

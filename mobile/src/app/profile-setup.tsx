@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, Switch, View } from 'react-native';
+import { Switch, View } from 'react-native';
+import { KeyboardAvoidingView, KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, Card, IconBubble, Input, Text } from '../components/ui';
 import { useToast } from '../components/Toast';
@@ -40,8 +41,8 @@ export default function ProfileSetup() {
   };
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: c.bg }}>
-      <ScrollView contentContainerStyle={{ padding: space(5), paddingTop: insets.top + space(6), paddingBottom: insets.bottom + space(5), gap: space(5), flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+    <KeyboardAvoidingView behavior="padding" style={{ flex: 1, backgroundColor: c.bg }}>
+      <KeyboardAwareScrollView bottomOffset={24} contentContainerStyle={{ padding: space(5), paddingTop: insets.top + space(6), paddingBottom: insets.bottom + space(5), gap: space(5), flexGrow: 1 }} keyboardShouldPersistTaps="handled">
         <IconBubble name="person" color={c.primary} bg={c.primarySoft} size={56} />
         <View style={{ gap: space(2) }}>
           <Text variant="display">{t('profileSetupTitle')}</Text>
@@ -69,7 +70,7 @@ export default function ProfileSetup() {
         </Card>
         <View style={{ flex: 1 }} />
         <Button title={t('continue')} onPress={save} loading={busy} icon="checkmark" />
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </KeyboardAvoidingView>
   );
 }

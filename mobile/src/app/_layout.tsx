@@ -6,6 +6,7 @@ import { Stack, router } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, Inter_800ExtraBold } from '@expo-google-fonts/inter';
 import { AuthProvider, isProfileComplete, useAuth } from '../lib/auth';
 import { I18nProvider, useI18n } from '../lib/i18n';
@@ -88,6 +89,7 @@ export default function RootLayout() {
   if (!fontsLoaded && !fontError) return null;
   return (
     <SafeAreaProvider>
+      <KeyboardProvider statusBarTranslucent navigationBarTranslucent>
       <I18nProvider>
         <AuthProvider>
           <ToastProvider>
@@ -95,6 +97,7 @@ export default function RootLayout() {
           </ToastProvider>
         </AuthProvider>
       </I18nProvider>
+      </KeyboardProvider>
     </SafeAreaProvider>
   );
 }

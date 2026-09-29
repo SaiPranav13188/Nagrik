@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, KeyboardAvoidingView, Modal, Platform, Pressable, View } from 'react-native';
+import { Animated, Modal, Pressable, View } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { radius, space, useTheme } from '../theme';
 
@@ -14,8 +15,8 @@ export function Sheet({ visible, onClose, children, dismissable = true }: { visi
   }, [visible, anim]);
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={() => dismissable && onClose()} statusBarTranslucent>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, justifyContent: 'flex-end' }}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={() => dismissable && onClose()} statusBarTranslucent navigationBarTranslucent>
+      <KeyboardAvoidingView behavior="padding" style={{ flex: 1, justifyContent: 'flex-end' }}>
         <Pressable style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: c.overlay }} onPress={() => dismissable && onClose()} accessibilityLabel="Close" />
         <Animated.View
           style={{
