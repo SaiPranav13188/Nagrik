@@ -5,7 +5,7 @@ import { repo } from '../db/index.js';
 import { detectCaptcha } from '../automation/captcha.js';
 import { extractConfirmationDetails, fillAndSubmitForm, getSnapshot } from '../automation/portal.js';
 import { photoToTempFile } from '../services/storage.js';
-import { notifyUser } from '../services/notify.js';
+import { notifySupporters, notifyUser } from '../services/notify.js';
 import type { AgentDefinition } from '../ai/runtime.js';
 
 export interface SubmissionInput {
@@ -129,6 +129,7 @@ Every failure hands the complaint back to the citizen with the drafted text and 
             'Complaint filed ✅',
             tracking_id ? `Filed with ${c.jurisdiction_department}. Reference: ${tracking_id}. We'll keep tracking it for you.` : `Filed with ${c.jurisdiction_department}. We'll keep tracking it for you.`,
           );
+          await notifySupporters(c.id, 'A complaint you support was filed', `Filed with ${c.jurisdiction_department}${tracking_id ? ` (Ref. ${tracking_id})` : ''}.`);
           return { recorded: true };
         },
       }),

@@ -53,9 +53,17 @@ export interface Complaint {
   submitted_at: string | null;
   last_checked_at: string | null;
   escalation_level: number;
+  /** Other residents who tapped "Me too" (the reporter is not counted). */
+  supporters_count: number;
   resolved_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface Supporter {
+  complaint_id: string;
+  user_id: string;
+  created_at: string;
 }
 
 export interface FormField {

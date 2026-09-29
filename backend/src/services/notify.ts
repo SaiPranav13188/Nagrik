@@ -29,6 +29,13 @@ export async function notifyUser(userId: string, complaintId: string | null, tit
   return { notificationId: n.id, push };
 }
 
+/** Notifies every resident who tapped "Me too" on this complaint. */
+export async function notifySupporters(complaintId: string, title: string, body: string) {
+  const supporters = await repo.listSupporters(complaintId);
+  await Promise.all(supporters.map((s) => notifyUser(s.user_id, complaintId, title, body).catch(() => null)));
+  return supporters.length;
+}
+
 export interface EmailResult {
   delivered: boolean;
   mode: 'resend' | 'sandbox_simulated' | 'not_configured' | 'live_disabled';

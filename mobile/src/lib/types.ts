@@ -36,6 +36,9 @@ export interface Complaint {
   submitted_at: string | null;
   last_checked_at: string | null;
   escalation_level: number;
+  supporters_count: number;
+  /** 'supporter' when this user tapped "Me too" on someone else's complaint. */
+  viewer_role?: 'owner' | 'supporter';
   resolved_at: string | null;
   created_at: string;
   updated_at: string;
@@ -87,7 +90,30 @@ export interface ComplaintDetail {
   status_checks: StatusCheck[];
   escalations: Escalation[];
   activity: ActivityItem[];
+  viewer_role: 'owner' | 'supporter';
   server_time: string;
+}
+
+/** Someone else's complaint as the public sees it (no names, phones or letter). */
+export interface NearbyItem {
+  id: string;
+  issue_type: IssueType | null;
+  status: ComplaintStatus;
+  severity: 'low' | 'medium' | 'high' | null;
+  description: string | null;
+  photo_url: string | null;
+  latitude: number;
+  longitude: number;
+  address: string | null;
+  jurisdiction_department: string | null;
+  tracking_id: string | null;
+  supporters_count: number;
+  created_at: string;
+  submitted_at: string | null;
+  resolved_at: string | null;
+  distance_m: number | null;
+  is_mine: boolean;
+  supported_by_me: boolean;
 }
 
 export interface AppNotification {
@@ -102,4 +128,5 @@ export interface AppNotification {
 export type AnalyzeResult =
   | { result: 'created'; complaint: Complaint }
   | { result: 'clarification'; intakeId: string; photoUrl: string; question: string; options: Array<{ issue_type: IssueType; label: string }> }
-  | { result: 'rejected'; intakeId: string; photoUrl: string; reason: string };
+  | { result: 'rejected'; intakeId: string; photoUrl: string; reason: string }
+  | { result: 'duplicate'; intakeId: string; photoUrl: string; reason: string; existing: NearbyItem };

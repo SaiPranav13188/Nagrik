@@ -61,6 +61,7 @@ export function statusStyle(s: StatusKey, c: Colors): { fg: string; bg: string; 
 export const IN_PROGRESS: Complaint['status'][] = ['analyzing', 'drafted', 'submitting'];
 
 export function needsUser(c: Complaint) {
+  if (c.viewer_role === 'supporter') return false;
   return c.status === 'submission_failed' || (c.status === 'drafted' && !c.submit_after);
 }
 

@@ -10,6 +10,7 @@ import { space, useTheme } from '../../theme';
 
 const TABS: Record<string, { icon: keyof typeof Ionicons.glyphMap; active: keyof typeof Ionicons.glyphMap; label: TKey }> = {
   index: { icon: 'home-outline', active: 'home', label: 'tabHome' },
+  nearby: { icon: 'map-outline', active: 'map', label: 'tabNearby' },
   updates: { icon: 'notifications-outline', active: 'notifications', label: 'tabUpdates' },
   profile: { icon: 'person-circle-outline', active: 'person-circle', label: 'tabProfile' },
 };
@@ -43,7 +44,7 @@ function TabBar({ state, navigation }: BottomTabBarProps) {
   };
   return (
     <View style={{ flexDirection: 'row', backgroundColor: c.surface, borderTopWidth: 1, borderTopColor: c.line, paddingBottom: insets.bottom, paddingHorizontal: space(2), ...shadow(8) }}>
-      {renderTab(routes[0])}
+      {routes.slice(0, 2).map(renderTab)}
       <View style={{ flex: 1, alignItems: 'center' }}>
         <Pressable
           accessibilityRole="button"
@@ -70,7 +71,7 @@ function TabBar({ state, navigation }: BottomTabBarProps) {
         </Pressable>
         <Text variant="smallStrong" color={c.primary} style={{ fontSize: 11, marginTop: 2 }}>{t('tabReport')}</Text>
       </View>
-      {routes.slice(1).map(renderTab)}
+      {routes.slice(2).map(renderTab)}
     </View>
   );
 }
@@ -79,6 +80,7 @@ export default function TabsLayout() {
   return (
     <Tabs screenOptions={{ headerShown: false }} tabBar={(p) => <TabBar {...p} />}>
       <Tabs.Screen name="index" />
+      <Tabs.Screen name="nearby" />
       <Tabs.Screen name="updates" />
       <Tabs.Screen name="profile" />
     </Tabs>

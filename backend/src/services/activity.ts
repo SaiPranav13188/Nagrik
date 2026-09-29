@@ -52,6 +52,16 @@ export function humanizeLogs(logs: ToolLog[]): ActivityItem[] {
         icon = 'help-circle';
         title = 'Asked you to confirm the issue type';
         break;
+      case 'find_nearby_duplicates':
+        icon = 'people';
+        title = 'Checked for the same problem reported nearby';
+        detail = r.candidates?.length ? `${r.candidates.length} similar report(s) within 60 m` : 'No similar reports nearby';
+        break;
+      case 'suggest_join_existing':
+        icon = 'people';
+        title = 'Found an existing report of this problem nearby';
+        detail = a.reason ?? null;
+        break;
       case 'save_complaint':
         icon = 'document-text';
         title = 'Created your complaint';

@@ -53,7 +53,11 @@ export function ComplaintCard({ complaint }: { complaint: Complaint }) {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: space(1), marginTop: 4 }}>
             <StatusPill complaint={complaint} size="sm" />
             {live && <PulseDot color={c.primary} size={6} />}
-            {complaint.tracking_id && (
+            {complaint.viewer_role === 'supporter' && <Pill size="sm" label={t('supportingBadge')} icon="hand-right" fg={c.info} bg={c.infoSoft} />}
+            {!!complaint.supporters_count && complaint.viewer_role !== 'supporter' && (
+              <Pill size="sm" label={`+${complaint.supporters_count}`} icon="people" fg={c.info} bg={c.infoSoft} />
+            )}
+            {complaint.tracking_id && complaint.viewer_role !== 'supporter' && (
               <Text variant="small" tone="faint" numberOfLines={1} style={{ flex: 1, marginLeft: 4 }}>
                 #{complaint.tracking_id}
               </Text>

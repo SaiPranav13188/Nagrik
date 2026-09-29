@@ -22,6 +22,7 @@ export function templateDraft(c: Complaint, j: Jurisdiction | null, p: Profile |
   const label = c.issue_type ? ISSUE_LABELS[c.issue_type] : 'Civic issue';
   const place = c.address?.split(',').slice(0, 2).join(',').trim() || 'my locality';
   const subject = `${label} at ${place}`.slice(0, 100);
+  const many = c.supporters_count ? ` ${c.supporters_count} other resident(s) have also reported this issue.` : '';
   const urgent = c.severity === 'high' ? ' This poses an immediate safety risk to residents and commuters, and urgent attention is requested.' : '';
   const gps = c.latitude != null ? `\nGPS: ${c.latitude.toFixed(6)}, ${c.longitude!.toFixed(6)} (https://maps.google.com/?q=${c.latitude},${c.longitude})` : '';
   const body = `To
@@ -31,7 +32,7 @@ Respected Sir/Madam,
 
 I wish to bring to your attention the following issue observed on ${formatDate(c.created_at)}.
 
-${c.description}${urgent}
+${c.description}${many}${urgent}
 
 Location: ${c.address ?? 'Not available'}${gps}
 
@@ -76,6 +77,7 @@ Procedure: call get_complaint_context, then draft_complaint_text (pass the porta
               latitude: c.latitude,
               longitude: c.longitude,
               reported_on: formatDate(c.created_at),
+              other_residents_affected: c.supporters_count ?? 0,
             },
             department: j?.department_name ?? null,
             portal_requirements: j?.notes ?? 'Formal English, subject under 100 chars, body under 1500 chars.',

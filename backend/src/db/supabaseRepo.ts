@@ -9,6 +9,7 @@ import type {
   Profile,
   ReviewStatus,
   StatusCheck,
+  Supporter,
   ToolLog,
 } from './types.js';
 import { buildSeedJurisdictions } from './seed.js';
@@ -121,6 +122,51 @@ export class SupabaseRepo implements Repo {
     let q = this.client.from('jurisdiction_lookup').select('*').order('created_at', { ascending: false });
     if (reviewStatus) q = q.eq('review_status', reviewStatus);
     return must(await q, 'listJurisdictions') as Jurisdiction[];
+  }
+
+  async addSupporter(complaintId: string, userId: string) {
+    const res = await this.client.from('complaint_supporters').insert({ complaint_id: complaintId, user_id: userId });
+    if (res.error) {
+      if (res.error.code === '23505') return false; // already supporting
+      throw new Error(`addSupporter: ${res.error.message}`);
+    }
+    await this.syncCount(complaintId);
+    return true;
+  }
+
+  async removeSupporter(complaintId: string, userId: string) {
+    must(await this.client.from('complaint_supporters').delete().eq('complaint_id', complaintId).eq('user_id', userId), 'removeSupporter');
+    await this.syncCount(complaintId);
+  }
+
+  private async syncCount(complaintId: string) {
+    const { count } = await this.client.from('complaint_supporters').select('*', { count: 'exact', head: true }).eq('complaint_id', complaintId);
+    await this.client.from('complaints').update({ supporters_count: count ?? 0 }).eq('id', complaintId);
+  }
+
+  async listSupporters(complaintId: string) {
+    return must(await this.client.from('complaint_supporters').select('*').eq('complaint_id', complaintId), 'listSupporters') as Supporter[];
+  }
+
+  async listSupportedComplaints(userId: string) {
+    const rows = must(await this.client.from('complaint_supporters').select('complaint_id').eq('user_id', userId), 'listSupported') as Array<{ complaint_id: string }>;
+    if (!rows.length) return [];
+    return must(await this.client.from('complaints').select('*').in('id', rows.map((r) => r.complaint_id)), 'listSupportedComplaints') as Complaint[];
+  }
+
+  async listComplaintsInBox(b: { minLat: number; maxLat: number; minLng: number; maxLng: number }, limit: number) {
+    return must(
+      await this.client
+        .from('complaints')
+        .select('*')
+        .gte('latitude', b.minLat)
+        .lte('latitude', b.maxLat)
+        .gte('longitude', b.minLng)
+        .lte('longitude', b.maxLng)
+        .order('created_at', { ascending: false })
+        .limit(limit),
+      'listComplaintsInBox',
+    ) as Complaint[];
   }
 
   async addStatusCheck(s: Omit<StatusCheck, 'id' | 'checked_at'>) {

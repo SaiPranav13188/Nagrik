@@ -11,6 +11,7 @@ import type {
   Profile,
   ReviewStatus,
   StatusCheck,
+  Supporter,
   ToolLog,
 } from './types.js';
 import { buildSeedJurisdictions } from './seed.js';
@@ -23,6 +24,7 @@ interface Data {
   complaint_escalations: Escalation[];
   agent_tool_logs: ToolLog[];
   notifications: Notification[];
+  complaint_supporters: Supporter[];
 }
 
 const now = () => new Date().toISOString();
@@ -54,8 +56,11 @@ export class LocalRepo implements Repo {
         complaint_escalations: [],
         agent_tool_logs: [],
         notifications: [],
+        complaint_supporters: [],
       };
     }
+    this.data.complaint_supporters ??= [];
+    for (const c of this.data.complaints) c.supporters_count ??= 0;
     // Seeds are idempotent: re-sync trusted seed rows on every boot so edits to seed.ts apply.
     for (const seed of buildSeedJurisdictions()) {
       const i = this.data.jurisdiction_lookup.findIndex((j) => j.id === seed.id);
@@ -132,6 +137,7 @@ export class LocalRepo implements Repo {
       submitted_at: null,
       last_checked_at: null,
       escalation_level: 0,
+      supporters_count: 0,
       resolved_at: null,
       created_at: now(),
       updated_at: now(),
@@ -156,6 +162,7 @@ export class LocalRepo implements Repo {
 
   async deleteComplaint(id: string) {
     this.data.complaints = this.data.complaints.filter((c) => c.id !== id);
+    this.data.complaint_supporters = this.data.complaint_supporters.filter((x) => x.complaint_id !== id);
     this.persist();
   }
 
@@ -203,6 +210,40 @@ export class LocalRepo implements Repo {
     return this.data.jurisdiction_lookup
       .filter((j) => !reviewStatus || j.review_status === reviewStatus)
       .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  }
+
+  async addSupporter(complaintId: string, userId: string) {
+    if (this.data.complaint_supporters.some((x) => x.complaint_id === complaintId && x.user_id === userId)) return false;
+    this.data.complaint_supporters.push({ complaint_id: complaintId, user_id: userId, created_at: now() });
+    this.syncCount(complaintId);
+    return true;
+  }
+
+  async removeSupporter(complaintId: string, userId: string) {
+    this.data.complaint_supporters = this.data.complaint_supporters.filter((x) => !(x.complaint_id === complaintId && x.user_id === userId));
+    this.syncCount(complaintId);
+  }
+
+  private syncCount(complaintId: string) {
+    const c = this.data.complaints.find((x) => x.id === complaintId);
+    if (c) c.supporters_count = this.data.complaint_supporters.filter((x) => x.complaint_id === complaintId).length;
+    this.persist();
+  }
+
+  async listSupporters(complaintId: string) {
+    return this.data.complaint_supporters.filter((x) => x.complaint_id === complaintId);
+  }
+
+  async listSupportedComplaints(userId: string) {
+    const ids = new Set(this.data.complaint_supporters.filter((x) => x.user_id === userId).map((x) => x.complaint_id));
+    return this.data.complaints.filter((c) => ids.has(c.id));
+  }
+
+  async listComplaintsInBox(b: { minLat: number; maxLat: number; minLng: number; maxLng: number }, limit: number) {
+    return this.data.complaints
+      .filter((c) => c.latitude != null && c.longitude != null && c.latitude >= b.minLat && c.latitude <= b.maxLat && c.longitude >= b.minLng && c.longitude <= b.maxLng)
+      .sort((x, y) => y.created_at.localeCompare(x.created_at))
+      .slice(0, limit);
   }
 
   async addStatusCheck(s: Omit<StatusCheck, 'id' | 'checked_at'>) {

@@ -8,6 +8,7 @@ import type {
   Profile,
   ReviewStatus,
   StatusCheck,
+  Supporter,
   ToolLog,
 } from './types.js';
 
@@ -43,6 +44,14 @@ export interface Repo {
   insertJurisdiction(j: Omit<Jurisdiction, 'id' | 'created_at'>): Promise<Jurisdiction>;
   updateJurisdiction(id: string, patch: Partial<Jurisdiction>): Promise<Jurisdiction>;
   listJurisdictions(reviewStatus?: ReviewStatus): Promise<Jurisdiction[]>;
+
+  /** Adds a "Me too"; returns false if this user already supports it. Keeps supporters_count in sync. */
+  addSupporter(complaintId: string, userId: string): Promise<boolean>;
+  removeSupporter(complaintId: string, userId: string): Promise<void>;
+  listSupporters(complaintId: string): Promise<Supporter[]>;
+  listSupportedComplaints(userId: string): Promise<Complaint[]>;
+  /** Complaints within a bounding box (callers refine by exact distance). */
+  listComplaintsInBox(box: { minLat: number; maxLat: number; minLng: number; maxLng: number }, limit: number): Promise<Complaint[]>;
 
   addStatusCheck(s: Omit<StatusCheck, 'id' | 'checked_at'>): Promise<StatusCheck>;
   listStatusChecks(complaintId: string): Promise<StatusCheck[]>;

@@ -11,10 +11,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, Card, Input, Text } from '../components/ui';
 import { Sheet } from '../components/Sheet';
 import { useToast } from '../components/Toast';
+import { VoiceButton } from '../components/VoiceButton';
+import { IssuePreview } from '../components/community';
+import { readBase64 } from '../lib/media';
 import { api, errorMessage } from '../lib/api';
 import { useI18n, type TKey } from '../lib/i18n';
 import { ISSUE_META } from '../lib/format';
-import type { IssueType } from '../lib/types';
+import type { IssueType, NearbyItem } from '../lib/types';
 import { radius, space, useTheme } from '../theme';
 
 type Loc =
@@ -36,19 +39,6 @@ async function compress(uri: string, width?: number): Promise<{ uri: string; bas
   }
 }
 
-async function readBase64(uri: string): Promise<string | null> {
-  try {
-    const blob = await (await fetch(uri)).blob();
-    return await new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result.split(',')[1] ?? null : null);
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(blob);
-    });
-  } catch {
-    return null;
-  }
-}
 
 const ANALYZE_STEPS: TKey[] = ['analyzing1', 'analyzing2', 'analyzing3', 'analyzing4'];
 
@@ -66,6 +56,9 @@ export default function Report() {
   const [phase, setPhase] = useState<'compose' | 'analyzing'>('compose');
   const [clarify, setClarify] = useState<{ intakeId: string; photoUrl: string; question: string; options: Array<{ issue_type: IssueType; label: string }> } | null>(null);
   const [rejected, setRejected] = useState<string | null>(null);
+  const [dup, setDup] = useState<{ intakeId: string; photoUrl: string; reason: string; existing: NearbyItem } | null>(null);
+  const [joining, setJoining] = useState(false);
+  const [voice, setVoice] = useState<{ transcript: string; english: string } | null>(null);
 
   // ───────── location ─────────
   const locate = useCallback(async () => {
@@ -133,17 +126,31 @@ export default function Report() {
 
   // ───────── analyze ─────────
   const locationReady = loc.kind === 'gps' || manualAddress.trim().length >= 6;
-  const run = async (extra?: { clarificationAnswer: IssueType }) => {
-    if (!photo && !clarify) return toast(t('needPhoto'), 'error');
+  // If the note is an unedited voice transcript in Telugu/Hindi, also send the English translation.
+  const noteForAgents = () => {
+    const n = note.trim();
+    if (voice && n === voice.transcript.trim() && voice.english && voice.english !== voice.transcript) return `${n} (English: ${voice.english})`.slice(0, 500);
+    return n || undefined;
+  };
+
+  const run = async (extra?: { clarificationAnswer?: IssueType; forceNew?: boolean }) => {
+    // A second round (clarification answer / "different problem") reuses the already-uploaded photo.
+    const prior = extra?.clarificationAnswer && clarify ? clarify : extra?.forceNew && dup ? dup : null;
+    if (!photo && !prior) return toast(t('needPhoto'), 'error');
     if (!locationReady) return toast(t('needLocation'), 'error');
     setPhase('analyzing');
     setClarify(null);
+    setDup(null);
     try {
       const r = await api.analyze({
-        ...(extra && clarify ? { photoUrl: clarify.photoUrl, intakeId: clarify.intakeId, clarificationAnswer: extra.clarificationAnswer } : (photoBase64 ? { photoBase64 } : { photoUri: photo! })),
+        ...(prior
+          ? { photoUrl: prior.photoUrl, intakeId: prior.intakeId, clarificationAnswer: extra?.clarificationAnswer, forceNew: extra?.forceNew }
+          : photoBase64
+            ? { photoBase64 }
+            : { photoUri: photo! }),
         ...(loc.kind === 'gps' ? { latitude: loc.latitude, longitude: loc.longitude } : {}),
         manualAddress: loc.kind === 'gps' ? undefined : manualAddress.trim(),
-        note: note.trim() || undefined,
+        note: noteForAgents(),
       });
       if (r.result === 'created') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
@@ -152,10 +159,26 @@ export default function Report() {
       }
       setPhase('compose');
       if (r.result === 'clarification') setClarify(r);
+      else if (r.result === 'duplicate') setDup(r);
       else setRejected(r.reason);
     } catch (e) {
       setPhase('compose');
       toast(errorMessage(e, t('offline'), t('somethingWrong')), 'error');
+    }
+  };
+
+  const joinExisting = async () => {
+    if (!dup) return;
+    setJoining(true);
+    try {
+      await api.support(dup.existing.id);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      toast(t('supportAdded'), 'success');
+      router.replace(`/complaint/${dup.existing.id}`);
+    } catch (e) {
+      toast(errorMessage(e, t('offline'), t('somethingWrong')), 'error');
+    } finally {
+      setJoining(false);
     }
   };
 
@@ -234,6 +257,14 @@ export default function Report() {
           {(loc.kind === 'denied' || loc.kind === 'manual') && <Input placeholder={t('addressPlaceholder')} value={manualAddress} onChangeText={setManualAddress} icon="map-outline" multiline style={{ minHeight: 44 }} />}
         </Card>
 
+        {/* Voice → text */}
+        <VoiceButton
+          onText={(transcript, english) => {
+            setVoice({ transcript, english });
+            setNote(transcript.slice(0, 500));
+          }}
+        />
+
         {/* Note */}
         <Input label={t('addDetails')} placeholder={t('detailsPlaceholder')} value={note} onChangeText={setNote} multiline maxLength={500} style={{ minHeight: 70 }} icon="chatbox-ellipses-outline" />
       </ScrollView>
@@ -269,6 +300,30 @@ export default function Report() {
             })}
           </View>
         </View>
+      </Sheet>
+
+      {/* Already reported nearby */}
+      <Sheet visible={!!dup} onClose={() => setDup(null)}>
+        {dup && (
+          <View style={{ gap: space(4) }}>
+            <View style={{ gap: 4 }}>
+              <Text variant="caption" tone="primary">{dup.existing.is_mine ? t('alreadyYours') : t('duplicateTitle')}</Text>
+              <Text variant="title">{dup.reason}</Text>
+              {!dup.existing.is_mine && <Text tone="muted">{t('duplicateBody')}</Text>}
+            </View>
+            <IssuePreview
+              item={dup.existing}
+              busy={joining}
+              onSupport={joinExisting}
+              onOpen={() => {
+                const id = dup.existing.id;
+                setDup(null);
+                router.replace(`/complaint/${id}`);
+              }}
+            />
+            {!dup.existing.is_mine && <Button title={t('differentProblem')} variant="ghost" size="md" onPress={() => run({ forceNew: true })} />}
+          </View>
+        )}
       </Sheet>
 
       {/* Rejected */}

@@ -10,6 +10,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, Card, Divider, IconBubble, Input, Pill, PulseDot, Skeleton, Text } from '../../components/ui';
 import { ActivityTimeline, ProgressTracker, StatusPill } from '../../components/complaint';
+import { ResidentsPill } from '../../components/community';
 import { Sheet } from '../../components/Sheet';
 import { useToast } from '../../components/Toast';
 import { api, errorMessage } from '../../lib/api';
@@ -104,6 +105,9 @@ export default function ComplaintScreen() {
   const lastCheck = cmp.last_checked_at ?? cmp.submitted_at;
   const nextCheckDays = lastCheck ? Math.max(0, Math.ceil(RECHECK_DAYS - (Date.now() - new Date(lastCheck).getTime()) / 86400000)) : RECHECK_DAYS;
   const portalUrl = j?.portal_url ?? null;
+  const isOwner = d.viewer_role !== 'supporter';
+  const electrical = cmp.issue_type === 'streetlight' && /wire|live|shock|current|spark/i.test(`${cmp.description} ${cmp.user_note ?? ''}`);
+  const showEmergency = cmp.severity === 'high' && cmp.status !== 'resolved';
   // Asking right after filing is noise; ask once the department has had a day, or after an escalation.
   const askIfFixed = s === 'escalated' || (!!cmp.submitted_at && Date.now() - new Date(cmp.submitted_at).getTime() > 86400000);
 
@@ -128,7 +132,10 @@ export default function ComplaintScreen() {
             )}
           </View>
           <View style={{ position: 'absolute', left: space(5), right: space(5), bottom: space(9), gap: space(2) }}>
-            <StatusPill complaint={cmp} />
+            <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+              <StatusPill complaint={cmp} />
+              <ResidentsPill supporters={cmp.supporters_count ?? 0} />
+            </View>
             <Text variant="title" color="#fff">{t(meta.key)}</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Ionicons name="location" size={14} color="rgba(255,255,255,0.85)" />
@@ -142,6 +149,45 @@ export default function ComplaintScreen() {
             <ProgressTracker complaint={cmp} />
           </Card>
 
+          {!isOwner && (
+            <Card style={{ gap: space(3) }}>
+              <View style={{ flexDirection: 'row', gap: space(3), alignItems: 'center' }}>
+                <IconBubble name="hand-right" color={c.info} bg={c.infoSoft} />
+                <Text variant="small" tone="soft" style={{ flex: 1 }}>{t('supporterView')}</Text>
+              </View>
+              <Button
+                title={t('removeSupport')}
+                variant="ghost"
+                size="sm"
+                loading={busy === 'unsupport'}
+                onPress={() =>
+                  act('unsupport', async () => {
+                    await api.unsupport(cmp.id);
+                    router.back();
+                  })
+                }
+              />
+            </Card>
+          )}
+
+          {showEmergency && (
+            <Card style={{ gap: space(3), borderColor: c.danger, borderWidth: 1.5 }}>
+              <View style={{ flexDirection: 'row', gap: space(3) }}>
+                <IconBubble name="warning" color={c.danger} bg={c.dangerSoft} />
+                <View style={{ flex: 1 }}>
+                  <Text variant="heading">{t('emergencyTitle')}</Text>
+                  <Text variant="small" tone="muted">{t('emergencyBody')}</Text>
+                </View>
+              </View>
+              <View style={{ flexDirection: 'row', gap: space(2) }}>
+                <Button title={t('call112')} variant="danger" size="md" icon="call" style={{ flex: 1 }} onPress={() => Linking.openURL('tel:112')} />
+                {(electrical || cmp.issue_type === 'streetlight') && (
+                  <Button title={t('call1912')} variant="secondary" size="md" icon="flash" style={{ flex: 1 }} onPress={() => Linking.openURL('tel:1912')} />
+                )}
+              </View>
+            </Card>
+          )}
+
           {/* ─────────── Contextual action card ─────────── */}
           {s === 'analyzing' && (
             <Card style={{ gap: space(3) }}>
@@ -154,7 +200,7 @@ export default function ComplaintScreen() {
             </Card>
           )}
 
-          {s === 'drafted' && secondsLeft !== null && (
+          {isOwner && s === 'drafted' && secondsLeft !== null && (
             <Card style={{ gap: space(3), borderColor: c.primary, borderWidth: 1.5 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: space(3) }}>
                 <View style={{ width: 52, height: 52, borderRadius: 26, borderWidth: 3, borderColor: c.primary, alignItems: 'center', justifyContent: 'center' }}>
@@ -172,7 +218,7 @@ export default function ComplaintScreen() {
             </Card>
           )}
 
-          {s === 'drafted' && secondsLeft === null && (
+          {isOwner && s === 'drafted' && secondsLeft === null && (
             <Card style={{ gap: space(3) }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: space(3) }}>
                 <IconBubble name="document-text" color={c.info} bg={c.infoSoft} />
@@ -198,7 +244,7 @@ export default function ComplaintScreen() {
             </Card>
           )}
 
-          {s === 'submission_failed' && (
+          {isOwner && s === 'submission_failed' && (
             <Card style={{ gap: space(4), borderColor: c.warning, borderWidth: 1.5 }}>
               <View style={{ flexDirection: 'row', gap: space(3) }}>
                 <IconBubble name="hand-left" color={c.warning} bg={c.warningSoft} />
@@ -262,11 +308,13 @@ export default function ComplaintScreen() {
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: space(2) }}>
                 <Ionicons name="time-outline" size={16} color={c.muted} />
                 <Text variant="small" tone="muted" style={{ flex: 1 }}>{t('nextCheck', { when: nextCheckDays ? t('inDays', { n: nextCheckDays }) : t('today') })}</Text>
-                <Pressable onPress={() => act('check', () => api.checkStatus(cmp.id))} disabled={busy === 'check'} hitSlop={8}>
-                  <Text variant="smallStrong" tone="primary">{busy === 'check' ? t('loading') : t('checkNow')}</Text>
-                </Pressable>
+                {isOwner && (
+                  <Pressable onPress={() => act('check', () => api.checkStatus(cmp.id))} disabled={busy === 'check'} hitSlop={8}>
+                    <Text variant="smallStrong" tone="primary">{busy === 'check' ? t('loading') : t('checkNow')}</Text>
+                  </Pressable>
+                )}
               </View>
-              {askIfFixed && (
+              {isOwner && askIfFixed && (
                 <>
                   <Divider />
                   <Text variant="bodyStrong">{t('isItFixed')}</Text>
@@ -279,7 +327,7 @@ export default function ComplaintScreen() {
             </Card>
           )}
 
-          {pendingEscalation && s === 'escalated' && (
+          {isOwner && pendingEscalation && s === 'escalated' && (
             <Card style={{ gap: space(3), borderColor: c.warning, borderWidth: 1.5 }}>
               <View style={{ flexDirection: 'row', gap: space(3) }}>
                 <IconBubble name="mail-unread" color={c.warning} bg={c.warningSoft} />
@@ -409,7 +457,7 @@ export default function ComplaintScreen() {
             </Card>
           )}
 
-          {['analyzing', 'drafted', 'submission_failed'].includes(cmp.status) && (
+          {isOwner && ['analyzing', 'drafted', 'submission_failed'].includes(cmp.status) && (
             <Button
               title={t('withdraw')}
               variant="ghost"

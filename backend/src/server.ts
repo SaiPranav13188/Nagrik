@@ -18,7 +18,7 @@ app.use(cors());
 // Photos arrive base64-encoded on the analyze route; everything else stays small.
 const jsonSmall = express.json({ limit: '1mb' });
 const jsonPhoto = express.json({ limit: '15mb' });
-app.use((req, res, next) => (req.path === '/complaints/analyze' ? jsonPhoto : jsonSmall)(req, res, next));
+app.use((req, res, next) => (req.path === '/complaints/analyze' || req.path === '/complaints/transcribe' ? jsonPhoto : jsonSmall)(req, res, next));
 app.use(express.urlencoded({ extended: false }));
 
 // One line per request in the Render logs, so failures are easy to trace.

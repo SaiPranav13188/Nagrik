@@ -53,7 +53,7 @@ for (const r of rows) {
   const intakeId = randomUUID();
   const intake = await runAgent(
     intakeAgent,
-    { intakeId, userId, photoUrl, latitude: r.lat, longitude: r.lng, manualAddress: null, userNote: r.note, clarificationAnswer: null, autoSubmit: false },
+    { intakeId, userId, photoUrl, latitude: r.lat, longitude: r.lng, manualAddress: null, userNote: r.note, clarificationAnswer: null, autoSubmit: false, forceNew: true },
     { complaintId: intakeId, userId },
   );
   const terminal = [...intake.toolCalls].reverse().find((t) => ['save_complaint', 'ask_user_clarification', 'reject_photo'].includes(t.toolName));

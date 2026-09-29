@@ -12,7 +12,8 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Nagrik uses the camera so you can photograph civic issues to report.",
         "NSLocationWhenInUseUsageDescription": "Nagrik uses your location so the complaint reaches the right local department.",
-        "NSPhotoLibraryUsageDescription": "Nagrik lets you pick a photo of the civic issue from your gallery."
+        "NSPhotoLibraryUsageDescription": "Nagrik lets you pick a photo of the civic issue from your gallery.",
+        "NSMicrophoneUsageDescription": "Nagrik uses the microphone so you can describe a civic problem by voice."
       }
     },
     "android": {
@@ -27,7 +28,8 @@
       "permissions": [
         "CAMERA",
         "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION"
+        "ACCESS_COARSE_LOCATION",
+        "RECORD_AUDIO"
       ]
     },
     "web": {
@@ -67,7 +69,14 @@
         {
           "color": "#0F766E"
         }
-      ]
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Nagrik uses the microphone so you can describe a civic problem by voice."
+        }
+      ],
+      "expo-asset"
     ],
     "scheme": "nagrik",
     "experiments": {

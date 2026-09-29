@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import { API_URL } from './config';
-import type { AnalyzeResult, AppNotification, ComplaintDetail, Complaint, IssueType, Profile } from './types';
+import type { AnalyzeResult, AppNotification, ComplaintDetail, Complaint, IssueType, NearbyItem, Profile } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -92,6 +92,7 @@ export const api = {
     manualAddress?: string;
     note?: string;
     clarificationAnswer?: IssueType;
+    forceNew?: boolean;
   }) {
     const fields = {
       photoUrl: input.photoUrl,
@@ -101,6 +102,7 @@ export const api = {
       manualAddress: input.manualAddress,
       note: input.note,
       clarificationAnswer: input.clarificationAnswer,
+      forceNew: input.forceNew || undefined,
     };
     // Preferred path: JSON with a base64 photo. Multipart with {uri,name,type} file objects is not
     // supported by every fetch implementation (it fails before reaching the server on newer Expo).
@@ -117,6 +119,11 @@ export const api = {
     return request<AnalyzeResult>('/complaints/analyze', { method: 'POST', form, timeoutMs: 120000 });
   },
 
+  nearby: (lat: number, lng: number, radius = 3000) => request<{ items: NearbyItem[] }>(`/complaints/nearby?lat=${lat}&lng=${lng}&radius=${radius}`, { timeoutMs: 30000 }),
+  support: (id: string) => request<{ supported: boolean; supporters_count: number }>(`/complaints/${id}/support`, { method: 'POST' }),
+  unsupport: (id: string) => request<{ supported: boolean; supporters_count: number }>(`/complaints/${id}/support`, { method: 'DELETE' }),
+  transcribe: (audioBase64: string, mimeType: string, lang: string) =>
+    request<{ transcript: string; english: string; language: string }>('/complaints/transcribe', { method: 'POST', body: { audioBase64, mimeType, lang }, timeoutMs: 60000 }),
   hold: (id: string) => request<ComplaintDetail>(`/complaints/${id}/hold`, { method: 'POST' }),
   submit: (id: string) => request<ComplaintDetail>(`/complaints/${id}/submit`, { method: 'POST' }),
   retry: (id: string) => request<ComplaintDetail>(`/complaints/${id}/retry`, { method: 'POST' }),

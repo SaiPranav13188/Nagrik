@@ -5,6 +5,7 @@ import { repo } from '../db/index.js';
 import { ISSUE_TYPES, type IssueType } from '../db/types.js';
 import { reverseGeocode } from '../services/geocode.js';
 import { loadPhoto } from '../services/storage.js';
+import { findNearby } from '../services/nearby.js';
 import { noteGeminiError, visionModel, type AgentDefinition } from '../ai/runtime.js';
 
 export interface IntakeInput {
@@ -18,7 +19,12 @@ export interface IntakeInput {
   userNote: string | null;
   clarificationAnswer: IssueType | null;
   autoSubmit: boolean;
+  /** The citizen saw a possible duplicate and chose to file a separate complaint anyway. */
+  forceNew: boolean;
 }
+
+/** Same issue type within this distance counts as a likely duplicate. */
+export const DUPLICATE_RADIUS_M = 60;
 
 export const ISSUE_LABELS: Record<IssueType, string> = {
   pothole: 'Pothole / damaged road',
@@ -57,7 +63,7 @@ function keywordGuess(text: string): IssueType | null {
 export const intakeAgent: AgentDefinition<IntakeInput> = {
   name: 'intake_agent',
   maxSteps: 8,
-  stopOnTools: ['save_complaint', 'ask_user_clarification', 'reject_photo'],
+  stopOnTools: ['save_complaint', 'ask_user_clarification', 'reject_photo', 'suggest_join_existing'],
   system: `You are the Intake Agent of Nagrik, a civic complaint service in India.
 Your job: turn a citizen's photo into one structured, accurate civic issue record.
 
@@ -66,7 +72,9 @@ Procedure:
 2. If coordinates exist, call reverse_geocode to get the address. If geocoding fails, use the citizen's typed address.
 3. Decide:
    - If the photo is not a public civic issue → call reject_photo with a short, polite reason.
-   - If the photo is ambiguous (confidence < 0.6, OR an alternative type has confidence within 0.2 of the top type) AND the citizen has not already answered a clarification → call ask_user_clarification with ONE short question and 2-4 options. Never guess: a wrong category routes the complaint to the wrong department.
+   - If the photo is ambiguous (confidence < 0.6, OR an alternative type has confidence within 0.2 of the top type) AND the citizen has not already answered a clarification → call ask_user_clarification with ONE short question and 2-6 options. Never guess: a wrong category routes the complaint to the wrong department.
+   - Otherwise, once the issue type is settled: if coordinates exist and the citizen has NOT chosen to file separately, call find_nearby_duplicates for that issue type.
+     If it returns an open complaint that is very likely the same physical problem (same type, within ~60 m, description compatible) → call suggest_join_existing with it. One well-supported complaint is far stronger than many duplicates.
    - Otherwise → call save_complaint. If the citizen answered a clarification, their answer wins.
 Keep descriptions factual and formal; never invent details not visible in the photo or given by the citizen.`,
 
@@ -78,6 +86,7 @@ Keep descriptions factual and formal; never invent details not visible in the ph
       `Citizen-typed address: ${input.manualAddress || 'none'}`,
       `Citizen note: ${input.userNote || 'none'}`,
       `Clarification answer from citizen: ${input.clarificationAnswer ? `${input.clarificationAnswer} (${ISSUE_LABELS[input.clarificationAnswer]})` : 'not asked yet'}`,
+      `Citizen chose to file separately despite nearby reports: ${input.forceNew ? 'yes' : 'no'}`,
     ].join('\n');
   },
 
@@ -152,9 +161,39 @@ Citizen note: ${input.userNote || 'none'}. ${focus_hint ? `Hint: ${focus_hint}` 
         description: 'Ask the citizen ONE clarifying question when the issue type is ambiguous. Ends this run; the app shows the options.',
         inputSchema: z.object({
           question: z.string(),
-          options: z.array(z.object({ issue_type: z.enum(ISSUE_TYPES), label: z.string() })).min(2).max(4),
+          options: z.array(z.object({ issue_type: z.enum(ISSUE_TYPES), label: z.string() })).min(2).max(6),
         }),
         execute: async (q) => ({ asked: true, ...q }),
+      }),
+
+      find_nearby_duplicates: tool({
+        description: `Open complaints of the same issue type reported within ${DUPLICATE_RADIUS_M} m of this location, nearest first.`,
+        inputSchema: z.object({ issue_type: z.enum(ISSUE_TYPES) }),
+        execute: async ({ issue_type }) => {
+          if (input.latitude == null || input.longitude == null) return { candidates: [], note: 'No coordinates.' };
+          const hits = await findNearby(input.latitude, input.longitude, DUPLICATE_RADIUS_M, { issueType: issue_type, openOnly: true, limit: 3 });
+          return {
+            candidates: hits.map(({ c, distance }) => ({
+              complaint_id: c.id,
+              distance_m: Math.round(distance),
+              status: c.status,
+              description: c.description,
+              supporters: c.supporters_count ?? 0,
+              reported_by_this_citizen: c.user_id === input.userId,
+              reported_days_ago: Math.floor((Date.now() - new Date(c.created_at).getTime()) / 86_400_000),
+            })),
+          };
+        },
+      }),
+
+      suggest_join_existing: tool({
+        description: 'Offer the citizen to add their support ("Me too") to an existing nearby complaint instead of filing a duplicate. Ends this run; the citizen decides.',
+        inputSchema: z.object({ complaint_id: z.string(), reason: z.string().describe('One short sentence, e.g. "A pothole 20 m away was reported 3 days ago."') }),
+        execute: async ({ complaint_id, reason }) => {
+          const c = await repo.getComplaint(complaint_id);
+          if (!c) return { error: 'Unknown complaint_id — use one from find_nearby_duplicates.' };
+          return { suggested: true, complaint_id, reason };
+        },
       }),
 
       reject_photo: tool({
@@ -216,9 +255,26 @@ Citizen note: ${input.userNote || 'none'}. ${focus_hint ? `Hint: ${focus_hint}` 
         tool: 'ask_user_clarification',
         input: {
           question: 'What best describes the problem in your photo?',
-          options: (['pothole', 'garbage', 'streetlight', 'water_leakage', 'drainage', 'other'] as IssueType[])
-            .slice(0, 4)
-            .map((t) => ({ issue_type: t, label: ISSUE_LABELS[t] })),
+          options: (['pothole', 'garbage', 'streetlight', 'water_leakage', 'drainage', 'other'] as IssueType[]).map((t) => ({ issue_type: t, label: ISSUE_LABELS[t] })),
+        },
+      };
+    }
+    const forceNew = /file separately despite nearby reports: yes/.test(s.userText);
+    const settled = answered ?? a.issue_type;
+    if (hasCoords && !forceNew && !s.called('find_nearby_duplicates')) {
+      return { tool: 'find_nearby_duplicates', input: { issue_type: settled } };
+    }
+    const dup = s.last('find_nearby_duplicates')?.output?.candidates?.[0];
+    if (dup && !forceNew && !s.called('suggest_join_existing')) {
+      return {
+        tool: 'suggest_join_existing',
+        input: {
+          complaint_id: dup.complaint_id,
+          reason: (() => {
+            const where = dup.distance_m < 15 ? 'right here' : `${dup.distance_m} m away`;
+            const when = dup.reported_days_ago ? `${dup.reported_days_ago} day(s) ago` : 'today';
+            return dup.reported_by_this_citizen ? `You already reported this ${where} ${when}.` : `The same problem was reported ${where} ${when}.`;
+          })(),
         },
       };
     }

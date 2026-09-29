@@ -6,13 +6,16 @@ import { z } from 'zod';
 import { repo } from '../db/index.js';
 import { ISSUE_TYPES, type Complaint } from '../db/types.js';
 import { requireUser } from '../auth.js';
-import { runAgent } from '../ai/runtime.js';
+import { generateText, Output } from 'ai';
+import { noteGeminiError, runAgent, textModel } from '../ai/runtime.js';
 import { intakeAgent } from '../agents/intake.js';
 import { jurisdictionAgent } from '../agents/jurisdiction.js';
 import { draftingAgent } from '../agents/drafting.js';
 import { savePhoto } from '../services/storage.js';
 import { reverseGeocode } from '../services/geocode.js';
 import { humanizeLogs } from '../services/activity.js';
+import { findNearby, publicView, supportedSet } from '../services/nearby.js';
+import { notifySupporters, notifyUser } from '../services/notify.js';
 import { enqueueSubmission, holdSubmission, runMonitorSweep, startPipeline } from '../services/scheduler.js';
 
 export const complaintsRouter = Router();
@@ -42,7 +45,20 @@ async function ownComplaint(req: Request, res: Response): Promise<Complaint | nu
   return c;
 }
 
-async function complaintDetail(c: Complaint) {
+/** Owner or a "Me too" supporter. Supporters get a read-only, privacy-redacted view. */
+async function viewableComplaint(req: Request, res: Response): Promise<{ c: Complaint; role: 'owner' | 'supporter' } | null> {
+  const c = await repo.getComplaint(String(req.params.id));
+  if (c && c.user_id === req.userId) return { c, role: 'owner' };
+  if (c && (await repo.listSupporters(c.id)).some((s) => s.user_id === req.userId)) return { c, role: 'supporter' };
+  res.status(404).json({ error: 'Complaint not found' });
+  return null;
+}
+
+async function complaintDetail(c: Complaint, role: 'owner' | 'supporter' = 'owner') {
+  if (role === 'supporter') {
+    // The letter contains the reporter's name and mobile number.
+    c = { ...c, draft_text: null, draft_subject: null, user_note: null, failure_reason: null };
+  }
   const [j, checks, escalations, logs] = await Promise.all([
     c.jurisdiction_portal_id ? repo.getJurisdiction(c.jurisdiction_portal_id) : null,
     repo.listStatusChecks(c.id),
@@ -68,7 +84,8 @@ async function complaintDetail(c: Complaint) {
       : null,
     status_checks: checks,
     escalations,
-    activity: humanizeLogs(logs),
+    activity: role === 'owner' ? humanizeLogs(logs) : [],
+    viewer_role: role,
     server_time: new Date().toISOString(),
   };
 }
@@ -85,6 +102,8 @@ const analyzeBody = z.object({
   // Photo as base64 in a JSON body — works with every fetch implementation (multipart does not).
   photoBase64: z.string().max(14_000_000).optional(),
   photoMimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']).optional(),
+  // The citizen saw a nearby duplicate and chose "It's a different problem".
+  forceNew: z.union([z.boolean(), z.enum(['true', 'false'])]).optional().transform((v) => v === true || v === 'true'),
 });
 
 complaintsRouter.post('/analyze', analyzeLimiter, upload.single('photo'), async (req, res) => {
@@ -125,11 +144,22 @@ complaintsRouter.post('/analyze', analyzeLimiter, upload.single('photo'), async 
       userNote: b.note?.trim() || null,
       clarificationAnswer: b.clarificationAnswer ?? null,
       autoSubmit: profile?.auto_submit_default ?? true,
+      forceNew: b.forceNew,
     },
     { complaintId: intakeId, userId: req.userId },
   );
 
-  const last = [...result.toolCalls].reverse().find((t) => ['save_complaint', 'ask_user_clarification', 'reject_photo'].includes(t.toolName));
+  const last = [...result.toolCalls]
+    .reverse()
+    .find((t) => ['save_complaint', 'ask_user_clarification', 'reject_photo', 'suggest_join_existing'].includes(t.toolName) && !(t.output as { error?: string })?.error);
+  if (last?.toolName === 'suggest_join_existing') {
+    const o = last.output as { complaint_id: string; reason: string };
+    const dup = await repo.getComplaint(o.complaint_id);
+    if (dup) {
+      const view = publicView(dup, { userId: req.userId, supported: await supportedSet(req.userId) });
+      return res.json({ result: 'duplicate', intakeId, photoUrl, reason: o.reason, existing: view });
+    }
+  }
   if (last?.toolName === 'ask_user_clarification') {
     const o = last.output as { question: string; options: Array<{ issue_type: string; label: string }> };
     return res.json({ result: 'clarification', intakeId, photoUrl, question: o.question, options: o.options });
@@ -161,13 +191,99 @@ complaintsRouter.get('/geocode', geocodeLimiter, async (req, res) => {
 
 // ───────────── list + detail ─────────────
 complaintsRouter.get('/', async (req, res) => {
-  const rows = await repo.listComplaintsByUser(req.userId);
+  const [own, supported] = await Promise.all([repo.listComplaintsByUser(req.userId), repo.listSupportedComplaints(req.userId)]);
+  const redact = (c: Complaint) => ({ ...c, draft_text: null, draft_subject: null, user_note: null, viewer_role: 'supporter' as const });
+  const rows = [...own.map((c) => ({ ...c, viewer_role: 'owner' as const })), ...supported.filter((c) => c.user_id !== req.userId).map(redact)];
+  rows.sort((a, b) => b.created_at.localeCompare(a.created_at));
   res.json({ complaints: rows });
 });
 
+// ───────────── Nearby map ─────────────
+complaintsRouter.get('/nearby', async (req, res) => {
+  const q = z
+    .object({ lat: z.coerce.number().min(-90).max(90), lng: z.coerce.number().min(-180).max(180), radius: z.coerce.number().min(100).max(10000).default(3000) })
+    .safeParse(req.query);
+  if (!q.success) return res.status(400).json({ error: 'lat and lng required' });
+  const hits = await findNearby(q.data.lat, q.data.lng, q.data.radius, { limit: 200 });
+  const supported = await supportedSet(req.userId);
+  res.json({ items: hits.map(({ c, distance }) => publicView(c, { userId: req.userId, supported }, distance)) });
+});
+
+// ───────────── "Me too" ─────────────
+const SUPPORT_MILESTONES = new Set([1, 5, 10, 25, 50, 100]);
+complaintsRouter.post('/:id/support', async (req, res) => {
+  const c = await repo.getComplaint(String(req.params.id));
+  if (!c || c.status === 'analyzing') return res.status(404).json({ error: 'Complaint not found' });
+  if (c.user_id === req.userId) return res.status(409).json({ error: 'You reported this one yourself.' });
+  const added = await repo.addSupporter(c.id, req.userId);
+  const updated = (await repo.getComplaint(c.id))!;
+  if (added && SUPPORT_MILESTONES.has(updated.supporters_count)) {
+    const n = updated.supporters_count;
+    await notifyUser(c.user_id, c.id, n === 1 ? 'A neighbour joined your complaint' : `${n} neighbours joined your complaint`, `${n + 1} residents are now affected. We'll mention this in follow-ups and escalations.`);
+  }
+  res.json({ supported: true, supporters_count: updated.supporters_count });
+});
+
+complaintsRouter.delete('/:id/support', async (req, res) => {
+  const c = await repo.getComplaint(String(req.params.id));
+  if (!c) return res.status(404).json({ error: 'Complaint not found' });
+  await repo.removeSupporter(c.id, req.userId);
+  const updated = (await repo.getComplaint(c.id))!;
+  res.json({ supported: false, supporters_count: updated.supporters_count });
+});
+
+// ───────────── Voice → text (Telugu / Hindi / English) ─────────────
+const transcribeLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 40, keyGenerator: (req) => (req as Request).userId, standardHeaders: true, legacyHeaders: false });
+complaintsRouter.post('/transcribe', transcribeLimiter, async (req, res) => {
+  const b = z
+    .object({ audioBase64: z.string().min(100).max(8_000_000), mimeType: z.string().max(40).default('audio/mp4'), lang: z.enum(['en', 'te', 'hi']).default('en') })
+    .safeParse(req.body);
+  if (!b.success) return res.status(400).json({ error: 'Invalid audio' });
+  const model = textModel();
+  if (!model) return res.status(503).json({ error: 'Voice input is unavailable right now. Please type instead.' });
+  const audio = Buffer.from(b.data.audioBase64, 'base64');
+  const run = (mediaType: string) =>
+    generateText({
+      model,
+      maxRetries: 1,
+      output: Output.object({
+        schema: z.object({
+          transcript: z.string().describe('Exactly what was said, in the original language and script.'),
+          english: z.string().describe('Faithful English translation (same as transcript if already English).'),
+          language: z.enum(['en', 'te', 'hi', 'other']),
+        }),
+      }),
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'A resident of Telangana, India is describing a civic problem (pothole, garbage, street light, water leak, drainage…). Transcribe it and translate to English. If there is no speech, return empty strings.' },
+            { type: 'file', data: audio, mediaType },
+          ],
+        },
+      ],
+    });
+  try {
+    let out;
+    try {
+      out = (await run(b.data.mimeType)).output;
+    } catch (e) {
+      // Some Gemini versions reject "audio/mp4" for .m4a; AAC is the same codec.
+      if (/mime|media type|unsupported/i.test(String((e as Error).message))) out = (await run('audio/aac')).output;
+      else throw e;
+    }
+    if (!out.transcript.trim()) return res.status(422).json({ error: "We couldn't hear anything. Please try again closer to the phone." });
+    res.json(out);
+  } catch (e) {
+    noteGeminiError(e);
+    console.warn('[transcribe]', (e as Error).message);
+    res.status(503).json({ error: 'Voice input is unavailable right now. Please type instead.' });
+  }
+});
+
 complaintsRouter.get('/:id/status', async (req, res) => {
-  const c = await ownComplaint(req, res);
-  if (c) res.json(await complaintDetail(c));
+  const v = await viewableComplaint(req, res);
+  if (v) res.json(await complaintDetail(v.c, v.role));
 });
 
 // ───────────── individual agent triggers (spec endpoints) ─────────────
@@ -263,6 +379,7 @@ complaintsRouter.post('/:id/user-status', async (req, res) => {
   });
   if (body.data.resolved) {
     await repo.updateComplaint(c.id, { status: 'resolved', resolved_at: new Date().toISOString() });
+    await notifySupporters(c.id, 'Fixed 🎉', 'The reporter confirmed that an issue you supported has been fixed.');
   } else {
     await repo.updateComplaint(c.id, { last_checked_at: new Date().toISOString() });
   }

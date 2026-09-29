@@ -4,7 +4,7 @@ import { config } from '../config.js';
 import { repo } from '../db/index.js';
 import type { Complaint } from '../db/types.js';
 import { scrapeStatus } from '../automation/portal.js';
-import { notifyUser, sendEscalationEmail } from '../services/notify.js';
+import { notifySupporters, notifyUser, sendEscalationEmail } from '../services/notify.js';
 import { noteGeminiError, runAgent, textModel, type AgentDefinition } from '../ai/runtime.js';
 import { ISSUE_LABELS } from './intake.js';
 
@@ -67,6 +67,7 @@ Finish with a one-line summary of what you did.`,
             days_since_last_action: Number(daysSince(lastAction).toFixed(1)),
             escalation_threshold_days: config.escalationThresholdDays,
             escalation_level: c.escalation_level,
+            residents_affected: 1 + (c.supporters_count ?? 0),
             status_check_supported: !!(j?.status_check_url_template && j.status_check_selectors && c.tracking_id),
             recent_checks: checks.map((s) => ({ at: s.checked_at, status: s.status_found, source: s.source })),
             escalations: escalations.map((e) => ({ level: e.escalation_level, at: e.created_at, delivery: e.delivery_status })),
@@ -116,7 +117,7 @@ Finish with a one-line summary of what you did.`,
               output: Output.object({ schema: z.object({ subject: z.string().max(140), body: z.string().max(2500) }) }),
               prompt: `Write a firm, polite, formal escalation letter (plain text) to "${step.title}" in India about an unresolved civic complaint.
 Facts: ${context}
-Original complaint subject: ${c.draft_subject}. Department: ${c.jurisdiction_department}. Reference: ${c.tracking_id ?? 'not issued'}. Filed ${days} days ago. Location: ${c.address}. Current portal status: ${c.portal_status ?? 'unknown'}.
+Residents affected: ${1 + (c.supporters_count ?? 0)} (the reporter plus ${c.supporters_count ?? 0} neighbours who confirmed the issue on Nagrik). Original complaint subject: ${c.draft_subject}. Department: ${c.jurisdiction_department}. Reference: ${c.tracking_id ?? 'not issued'}. Filed ${days} days ago. Location: ${c.address}. Current portal status: ${c.portal_status ?? 'unknown'}.
 Include: reference number, dates, that the issue remains unresolved, a specific request (inspection and action within 7 days), the original complaint text below a divider. Sign as ${p?.full_name ?? 'A concerned resident'}${p?.phone ? `, ${p.phone}` : ''}. No placeholders.
 Original complaint:
 ${c.draft_text}`,
@@ -136,7 +137,7 @@ Sub: Escalation of unresolved grievance${c.tracking_id ? ` (Ref. ${c.tracking_id
 
 I had filed a complaint with ${c.jurisdiction_department} ${days} day(s) ago regarding the issue described below. As of today the issue remains unresolved${c.portal_status ? ` and the portal status still reads "${c.portal_status}"` : ''}.
 
-I request you to kindly direct the concerned officials to inspect the site and resolve the issue within 7 days.
+${c.supporters_count ? `This issue affects many residents: ${c.supporters_count} neighbour(s) have independently confirmed it.\n\n` : ''}I request you to kindly direct the concerned officials to inspect the site and resolve the issue within 7 days.
 
 Location: ${c.address}${c.latitude != null ? `\nMap: https://maps.google.com/?q=${c.latitude},${c.longitude}` : ''}
 
@@ -208,7 +209,9 @@ ${p?.full_name ?? 'A concerned resident'}${p?.phone ? `\nMobile: ${p.phone}` : '
         inputSchema: z.object({ complaint_id: z.string(), title: z.string().max(60), message: z.string().max(240) }),
         execute: async ({ complaint_id, title, message }) => {
           const c = (await repo.getComplaint(complaint_id))!;
-          return notifyUser(c.user_id, c.id, title, message);
+          const r = await notifyUser(c.user_id, c.id, title, message);
+          const supporters = await notifySupporters(c.id, title, message);
+          return { ...r, supporters_notified: supporters };
         },
       }),
     };

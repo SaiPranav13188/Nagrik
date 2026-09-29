@@ -127,6 +127,32 @@ async function main() {
   const peek = await call(`/complaints/${id}/status`, { token: other });
   check("other users can't read it", peek.status === 404);
 
+  // ── "Me too": a neighbour reports the same street light → offered to join instead of duplicating
+  const nb = (await call('/auth/local', { method: 'POST', body: JSON.stringify({ deviceId: `e2e-neighbour-${Date.now()}` }) })).json.token;
+  await call('/me', { method: 'PUT', token: nb, body: JSON.stringify({ full_name: 'Lakshmi Devi', phone: '9123456780' }) });
+  const d1 = await call('/complaints/analyze', { method: 'POST', token: nb, body: form({ ...loc, note: 'street light not working here' }) });
+  check('duplicate detected nearby', d1.json.result === 'duplicate' && d1.json.existing?.id === id3, { result: d1.json.result, reason: d1.json.reason });
+  check('duplicate view hides reporter details', d1.json.existing && !('user_id' in d1.json.existing) && !('draft_text' in d1.json.existing));
+  const sup = await call(`/complaints/${id3}/support`, { method: 'POST', token: nb });
+  check('neighbour can say "Me too"', sup.json.supported && sup.json.supporters_count === 1, sup.json);
+  const again = await call(`/complaints/${id3}/support`, { method: 'POST', token: nb });
+  check('supporting twice is idempotent', again.json.supporters_count === 1);
+  const own = await call(`/complaints/${id3}/support`, { method: 'POST', token });
+  check("reporter can't support own complaint", own.status === 409);
+  const sv = await call(`/complaints/${id3}/status`, { token: nb });
+  check('supporter gets read-only redacted view', sv.status === 200 && sv.json.viewer_role === 'supporter' && sv.json.complaint.draft_text === null, sv.json.viewer_role);
+  const nbList = await call('/complaints', { token: nb });
+  check("supported complaint appears in neighbour's list", nbList.json.complaints.some((c: any) => c.id === id3 && c.viewer_role === 'supporter'));
+  const ownerNotes = (await call('/me/notifications', { token })).json.notifications;
+  check('reporter notified when neighbour joins', ownerNotes.some((n: any) => /neighbour joined/i.test(n.title)));
+  const forced = await call('/complaints/analyze', { method: 'POST', token: nb, body: form({ ...loc, note: 'street light not working here', intakeId: d1.json.intakeId, photoUrl: d1.json.photoUrl, forceNew: 'true' }, false) });
+  check('"different problem" files separately', forced.status === 201 && forced.json.result === 'created', forced.json.result);
+  const near = await call(`/complaints/nearby?lat=${loc.latitude}&lng=${loc.longitude}&radius=2000`, { token: nb });
+  check('nearby map lists complaints with distance', near.json.items?.length >= 2 && near.json.items.every((i: any) => typeof i.distance_m === 'number' && !('user_id' in i)), near.json.items?.length);
+  await call(`/complaints/${id3}/support`, { method: 'DELETE', token: nb });
+  const after = await call(`/complaints/${id3}/status`, { token: nb });
+  check('removing support revokes access', after.status === 404);
+
   const stats = await call('/admin/stats', { headers: { 'x-admin-key': ADMIN } });
   check('stats report captcha rate', stats.json.submission_attempts >= 2, stats.json);
 }
