@@ -1,5 +1,7 @@
 # Nagrik — agentic civic complaints
 
+[![CI](https://github.com/SaiPranav13188/Nagrik/actions/workflows/ci.yml/badge.svg)](https://github.com/SaiPranav13188/Nagrik/actions/workflows/ci.yml)
+
 Take a photo of a civic problem. AI agents classify it, work out which government office is responsible, write a formal complaint, file it on the official portal with a headless browser, then keep checking on it and escalate when nothing happens.
 
 Seeded for **Wanaparthy (PIN 509103), Telangana**. The app is in English, Telugu and Hindi.
@@ -95,6 +97,11 @@ Seeded mappings are in `backend/src/db/seed.ts`, with sources:
 | Escalations only go to verified contacts, and levels are never skipped | `submit_escalation` |
 | Nothing leaves the machine by email unless explicitly allowed | Sandbox contacts are only simulated. Live contacts need `ALLOW_LIVE_ESCALATION_EMAILS`. |
 | The first submission to a new portal gets a review window | `schedule_submission` shows a countdown the citizen can Hold. `autoSubmit=false` requires the citizen's approval every time. |
+| A real (non-sandbox) portal is never filed without the citizen tapping Submit, whatever the auto-submit setting | `schedule_submission` waits for approval. `get_form_selectors` and `fill_and_submit_form` refuse unless that run came from the citizen's Submit/Retry (`citizenConfirmed`). |
+| A complaint is only recorded as filed if a form was really submitted in that run | `mark_submitted` refuses otherwise, so a confused or hijacked model can't fake a filing |
+| Agents can't invent departments | `propose_new_jurisdiction` needs an official `.gov.in` / `.nic.in` source, and proposals stay `pending` (never auto-filed) |
+| Citizen text can't steer the agents | Notes and addresses are cleaned of instruction-like text (`services/citizenText.ts`) and marked as untrusted data in every prompt. The tool checks above hold even if a model is fooled. |
+| The server only fetches photos it stored itself | `photoUrl` must be the signed-in user's own upload (blocks SSRF) |
 | Only one browser session runs at a time | A single-slot queue in `automation/portal.ts` |
 
 ---
@@ -113,6 +120,7 @@ Seeded mappings are in `backend/src/db/seed.ts`, with sources:
 | POST | `/complaints/:id/manual-submitted` | Citizen filed it by hand (optional reference number) |
 | POST | `/complaints/:id/user-status` | Citizen says it is fixed or not fixed |
 | POST | `/complaints/:id/check-status` | Run the Monitoring agent now for this complaint |
+| POST | `/complaints/:id/escalate` | Escalate now to the next verified level. Needs body `{ "confirm": true }`; real offices also need 3 days since the last action. |
 | GET | `/complaints/:id/status` | Complaint, department, activity timeline, checks and escalations |
 | POST | `/jobs/monitor-complaints` | Cron trigger (`x-cron-secret` header) |
 | POST | `/admin/jurisdiction/review` | Approve or reject a mapping and its selectors (`x-admin-key` header) |
@@ -125,9 +133,97 @@ Seeded mappings are in `backend/src/db/seed.ts`, with sources:
 ```bash
 cd backend
 npm run test:harness     # Playwright harness vs sandbox portal: fill, submit, tracking ID, status, CAPTCHA, broken selector
+npm run test:failures    # 39 failure-mode checks: portal down, CAPTCHA, bad photos, prompt injection, invented departments, security
+npm run test:mcp         # spawns the MCP server over stdio and drives all 7 tools
+npm run test:tracing     # tracing wiring against a fake Langfuse endpoint (no account needed)
 npm run test:e2e         # full HTTP pipeline (start the server first; see header of scripts/e2e.ts)
-npm run eval:intake      # Intake + Jurisdiction accuracy on your own labelled photos (eval/labels.csv)
+npm run eval:intake      # scores the Intake, Jurisdiction and Drafting agents (see backend/eval/README.md)
 ```
+
+GitHub Actions runs everything except `test:e2e` on every push and pull request. It fails if the eval scores drop below `backend/eval/thresholds.json`. You can start the Gemini eval by hand from the Actions tab; it needs a `GEMINI_API_KEY` repository secret.
+
+### Failure handling
+
+`npm run test:failures` checks that each failure below is handled safely and that nothing is filed, escalated or routed wrongly. "Handled safely" means one of: the complaint goes back to the citizen, the action is refused, or the request gets a clear 4xx error.
+
+| Failure | What happens |
+|---|---|
+| Portal unreachable, or returns an error after submit | Handed back (`navigation_failed` / `portal_error`), never recorded as filed |
+| Status page down | Check logged as failed; complaint stays filed, not resolved or escalated |
+| CAPTCHA on the form, CAPTCHA only after submit, or an OTP gate | Detected and handed back, never bypassed |
+| Bad photo: missing, garbage, GIF, over 10 MB, corrupt bytes, someone else's URL | 400 / 413, or handled without a server error |
+| Prompt injection in the note, or a "hijacked" model calling tools with malicious arguments | Instructions stripped. Fake filing, redirected form, wrong-department routing and level-skipping escalation are all refused. |
+| Invented departments | No official source → refused. Official source → stored as pending only. Pending → never auto-filed. |
+
+### Agent eval
+
+`backend/eval/cases.synthetic.json` holds 40 synthetic, messy complaints: typos, Hinglish, romanised Telugu, vague addresses, out-of-area, not-civic, prompt injection and invented departments. **A human has not reviewed the expected answers yet**, so treat the numbers as provisional. Full results and fixes: [`backend/eval/README.md`](backend/eval/README.md).
+
+EVAL_TABLE_PLACEHOLDER
+
+## Tracing (Langfuse)
+
+Set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` (free at https://cloud.langfuse.com) and every agent run is traced:
+
+- one trace per agent run, grouped by complaint (the Langfuse *session* is the complaint id)
+- nested agents (Coordinator → Jurisdiction → Drafting → Submission)
+- every tool call as a span with input, output and duration
+- every model call, including the ones inside tools (photo analysis, drafting, web search), with tokens and cost
+
+Cost uses the per-token prices in `MODEL_PRICES` (defaults cover the two Gemini models). Without the keys, tracing is off.
+
+![A Nagrik complaint traced in Langfuse](docs/langfuse-trace.png)
+<!-- To add: file one complaint with the keys set, open it in Langfuse → Sessions, save a screenshot as docs/langfuse-trace.png -->
+
+## MCP server
+
+`backend/src/mcp/server.ts` lets MCP clients (Claude Desktop, Claude Code…) use Nagrik through 7 tools:
+
+| Tool | Does |
+|---|---|
+| `report_issue` | Photo + location (+ note) → Intake agent. Returns the complaint, a clarifying question, a nearby duplicate, or a rejection. |
+| `find_jurisdiction` | Runs the Jurisdiction agent |
+| `draft_complaint` | Runs the Drafting agent |
+| `submit_complaint` | Files on the portal. **Only a preview unless `confirm: true`.** |
+| `get_complaint_status` | Status, department, tracking ID, escalations, and anything the citizen must do |
+| `list_my_complaints` | The citizen's complaints |
+| `escalate_complaint` | Escalates to the next verified level. **Only a preview unless `confirm: true`.** |
+
+Safe by default:
+- `submit_complaint` and `escalate_complaint` refuse complaints routed to a real government portal or office unless `NAGRIK_MCP_ALLOW_LIVE=true`.
+- Complaints reported through MCP are never auto-filed.
+- Every backend guardrail still applies.
+
+Claude Desktop config (`claude_desktop_config.json`), with the backend running locally:
+
+```json
+{
+  "mcpServers": {
+    "nagrik": {
+      "command": "npx",
+      "args": ["tsx", "C:/path/to/Nagrik/backend/src/mcp/server.ts"],
+      "env": { "NAGRIK_API_URL": "http://localhost:4000", "NAGRIK_DEVICE_ID": "my-laptop" }
+    }
+  }
+}
+```
+
+`NAGRIK_DEVICE_ID` works with a backend that has no Supabase. With Supabase, pass `NAGRIK_TOKEN` (a signed-in user's access token) instead.
+
+## Security
+
+- **Secrets:** with `NODE_ENV=production` (the Dockerfile sets it) the server refuses to start unless these are set to non-default values of 24+ characters: `ADMIN_API_KEY`, `CRON_SECRET`, and `LOCAL_AUTH_SECRET` when Supabase isn't used.
+- **Admin key:** compared in constant time and accepted only in the `x-admin-key` header, never in the URL.
+- **Rate limits:**
+  - 900 requests per 15 min per IP
+  - 20 *failed* admin/cron attempts per 15 min per IP
+  - 60 agent-starting actions per hour per user (submit, retry, redraft, re-route, check, escalate, Me too)
+  - the existing per-user limits on reporting, voice and geocoding
+- **Real submissions:** always need the citizen's confirmation (see Guardrails).
+
+## Pilot
+
+[`docs/PILOT.md`](docs/PILOT.md) is the checklist for running Nagrik with 5–10 real users and turning what breaks into eval cases.
 
 The admin console's **Overview** tab reports:
 
@@ -154,7 +250,8 @@ These are the numbers that show how much of real-world filing can actually be au
 ```
 backend/src
   agents/        intake · jurisdiction · drafting · submission · monitoring · coordinator
-  ai/            runtime (tool loop + logging + fallback) · offlineModel (keyless planner)
+  ai/            runtime (tool loop + logging + fallback) · offlineModel (keyless planner) · tracing (Langfuse)
+  mcp/           MCP server (7 tools)
   automation/    Playwright harness · CAPTCHA/OTP detection
   db/            Supabase + local repos · Wanaparthy seed
   sandboxPortal/ mock municipal grievance portal
