@@ -48,10 +48,11 @@ export function scheduleSubmission(complaintId: string, atMs: number) {
 }
 submissionHooks.schedule = scheduleSubmission;
 
-export function enqueueSubmission(complaintId: string) {
+/** citizenConfirmed: the citizen tapped Submit/Retry. Timers and boot recovery never set it. */
+export function enqueueSubmission(complaintId: string, citizenConfirmed = false) {
   if (inFlight.has(complaintId)) return Promise.resolve();
   inFlight.add(complaintId);
-  return submissionQueue.run(() => runSubmission(complaintId)).finally(() => inFlight.delete(complaintId));
+  return submissionQueue.run(() => runSubmission(complaintId, citizenConfirmed)).finally(() => inFlight.delete(complaintId));
 }
 
 export async function holdSubmission(complaintId: string) {

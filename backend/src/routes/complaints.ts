@@ -11,12 +11,14 @@ import { noteGeminiError, runAgent, textModel } from '../ai/runtime.js';
 import { intakeAgent } from '../agents/intake.js';
 import { jurisdictionAgent } from '../agents/jurisdiction.js';
 import { draftingAgent } from '../agents/drafting.js';
-import { savePhoto } from '../services/storage.js';
+import { isOwnPhotoUrl, savePhoto } from '../services/storage.js';
 import { reverseGeocode } from '../services/geocode.js';
 import { humanizeLogs } from '../services/activity.js';
 import { findNearby, publicView, supportedSet } from '../services/nearby.js';
 import { notifySupporters, notifyUser } from '../services/notify.js';
 import { enqueueSubmission, holdSubmission, runMonitorSweep, startPipeline } from '../services/scheduler.js';
+import { agentActionLimiter } from '../rateLimits.js';
+import { complaintMonitorAgent } from '../agents/monitoring.js';
 
 export const complaintsRouter = Router();
 complaintsRouter.use(requireUser);
@@ -104,6 +106,8 @@ const analyzeBody = z.object({
   photoMimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']).optional(),
   // The citizen saw a nearby duplicate and chose "It's a different problem".
   forceNew: z.union([z.boolean(), z.enum(['true', 'false'])]).optional().transform((v) => v === true || v === 'true'),
+  // Overrides the profile's auto-submit setting for this complaint (the MCP server always sends false).
+  autoSubmit: z.boolean().optional(),
 });
 
 complaintsRouter.post('/analyze', analyzeLimiter, upload.single('photo'), async (req, res) => {
@@ -114,6 +118,7 @@ complaintsRouter.post('/analyze', analyzeLimiter, upload.single('photo'), async 
     return res.status(400).json({ error: 'We need your location — allow location access or type the address.' });
   }
 
+  if (b.photoUrl && !isOwnPhotoUrl(b.photoUrl, req.userId)) return res.status(400).json({ error: 'Please add the photo again.' });
   let photoUrl = b.photoUrl;
   if (req.file) photoUrl = await savePhoto(req.userId, req.file.buffer, req.file.mimetype);
   else if (b.photoBase64) {
@@ -143,7 +148,7 @@ complaintsRouter.post('/analyze', analyzeLimiter, upload.single('photo'), async 
       manualAddress: b.manualAddress?.trim() || null,
       userNote: b.note?.trim() || null,
       clarificationAnswer: b.clarificationAnswer ?? null,
-      autoSubmit: profile?.auto_submit_default ?? true,
+      autoSubmit: b.autoSubmit ?? profile?.auto_submit_default ?? true,
       forceNew: b.forceNew,
     },
     { complaintId: intakeId, userId: req.userId },
@@ -211,7 +216,7 @@ complaintsRouter.get('/nearby', async (req, res) => {
 
 // ───────────── "Me too" ─────────────
 const SUPPORT_MILESTONES = new Set([1, 5, 10, 25, 50, 100]);
-complaintsRouter.post('/:id/support', async (req, res) => {
+complaintsRouter.post('/:id/support', agentActionLimiter, async (req, res) => {
   const c = await repo.getComplaint(String(req.params.id));
   if (!c || c.status === 'analyzing') return res.status(404).json({ error: 'Complaint not found' });
   if (c.user_id === req.userId) return res.status(409).json({ error: 'You reported this one yourself.' });
@@ -287,7 +292,7 @@ complaintsRouter.get('/:id/status', async (req, res) => {
 });
 
 // ───────────── individual agent triggers (spec endpoints) ─────────────
-complaintsRouter.post('/:id/determine-jurisdiction', async (req, res) => {
+complaintsRouter.post('/:id/determine-jurisdiction', agentActionLimiter, async (req, res) => {
   const c = await ownComplaint(req, res);
   if (!c) return;
   if (['submitting', 'submitted', 'escalated', 'resolved'].includes(c.status)) return res.status(409).json({ error: 'Already filed.' });
@@ -295,7 +300,7 @@ complaintsRouter.post('/:id/determine-jurisdiction', async (req, res) => {
   res.json(await complaintDetail((await repo.getComplaint(c.id))!));
 });
 
-complaintsRouter.post('/:id/draft', async (req, res) => {
+complaintsRouter.post('/:id/draft', agentActionLimiter, async (req, res) => {
   const c = await ownComplaint(req, res);
   if (!c) return;
   if (['submitting', 'submitted', 'escalated', 'resolved'].includes(c.status)) return res.status(409).json({ error: 'Already filed.' });
@@ -315,13 +320,13 @@ complaintsRouter.patch('/:id/draft', async (req, res) => {
   res.json(await complaintDetail((await repo.getComplaint(c.id))!));
 });
 
-complaintsRouter.post('/:id/submit', async (req, res) => {
+complaintsRouter.post('/:id/submit', agentActionLimiter, async (req, res) => {
   const c = await ownComplaint(req, res);
   if (!c) return;
   if (!['drafted', 'submission_failed'].includes(c.status)) return res.status(409).json({ error: `Can't submit while ${c.status}.` });
   if (!c.draft_text) return res.status(409).json({ error: 'The draft is not ready yet.' });
   await repo.updateComplaint(c.id, { status: 'drafted', submit_after: null });
-  void enqueueSubmission(c.id);
+  void enqueueSubmission(c.id, true);
   res.status(202).json(await complaintDetail((await repo.getComplaint(c.id))!));
 });
 
@@ -333,7 +338,7 @@ complaintsRouter.post('/:id/hold', async (req, res) => {
   res.json(await complaintDetail((await repo.getComplaint(c.id))!));
 });
 
-complaintsRouter.post('/:id/retry', async (req, res) => {
+complaintsRouter.post('/:id/retry', agentActionLimiter, async (req, res) => {
   const c = await ownComplaint(req, res);
   if (!c) return;
   if (c.status === 'analyzing' || !c.draft_text || !c.jurisdiction_portal_id) {
@@ -341,7 +346,7 @@ complaintsRouter.post('/:id/retry', async (req, res) => {
     void startPipeline(c.id, req.userId);
   } else if (c.status === 'submission_failed') {
     await repo.updateComplaint(c.id, { status: 'drafted', failure_reason: null });
-    void enqueueSubmission(c.id);
+    void enqueueSubmission(c.id, true);
   } else {
     return res.status(409).json({ error: 'Nothing to retry.' });
   }
@@ -386,7 +391,7 @@ complaintsRouter.post('/:id/user-status', async (req, res) => {
   res.json(await complaintDetail((await repo.getComplaint(c.id))!));
 });
 
-complaintsRouter.post('/:id/check-status', async (req, res) => {
+complaintsRouter.post('/:id/check-status', agentActionLimiter, async (req, res) => {
   const c = await ownComplaint(req, res);
   if (!c) return;
   if (!['submitted', 'escalated'].includes(c.status)) return res.status(409).json({ error: 'Only filed complaints can be checked.' });
@@ -394,6 +399,25 @@ complaintsRouter.post('/:id/check-status', async (req, res) => {
     return res.status(429).json({ error: 'Checked just now — please try again in a few minutes.' });
   }
   await runMonitorSweep({ force: true, complaintId: c.id });
+  res.json(await complaintDetail((await repo.getComplaint(c.id))!));
+});
+
+// Citizen-requested escalation. Explicit confirm required; real offices also need a minimum wait so
+// officials aren't escalated to the day after filing. Verified-contact and no-level-skipping rules
+// are enforced inside submit_escalation.
+const MIN_DAYS_BEFORE_MANUAL_ESCALATION = 3;
+complaintsRouter.post('/:id/escalate', agentActionLimiter, async (req, res) => {
+  const c = await ownComplaint(req, res);
+  if (!c) return;
+  if (req.body?.confirm !== true) return res.status(400).json({ error: 'Escalation needs explicit confirmation (confirm: true).' });
+  if (!['submitted', 'escalated'].includes(c.status)) return res.status(409).json({ error: 'Only filed, unresolved complaints can be escalated.' });
+  const j = c.jurisdiction_portal_id ? await repo.getJurisdiction(c.jurisdiction_portal_id) : null;
+  const lastAction = (await repo.listEscalations(c.id))[0]?.created_at ?? c.submitted_at;
+  const days = lastAction ? (Date.now() - new Date(lastAction).getTime()) / 86_400_000 : 0;
+  if (!j?.is_sandbox && days < MIN_DAYS_BEFORE_MANUAL_ESCALATION) {
+    return res.status(409).json({ error: `Please give the office at least ${MIN_DAYS_BEFORE_MANUAL_ESCALATION} days before escalating.` });
+  }
+  await runAgent(complaintMonitorAgent, { complaintId: c.id, citizenRequestedEscalation: true }, { complaintId: c.id, userId: req.userId });
   res.json(await complaintDetail((await repo.getComplaint(c.id))!));
 });
 

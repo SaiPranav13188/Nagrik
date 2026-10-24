@@ -57,9 +57,53 @@ export const config = {
 
   // Nominatim requires an identifying User-Agent
   nominatimUserAgent: process.env.NOMINATIM_USER_AGENT || 'Nagrik-CivicComplaints/1.0 (contact: admin@nagrik.app)',
+
+  // Tracing (https://langfuse.com). Off unless both keys are set.
+  langfusePublicKey: process.env.LANGFUSE_PUBLIC_KEY || '',
+  langfuseSecretKey: process.env.LANGFUSE_SECRET_KEY || '',
+  langfuseBaseUrl: process.env.LANGFUSE_BASE_URL || process.env.LANGFUSE_HOST || 'https://cloud.langfuse.com',
+  // USD per 1M tokens, used for the cost shown on each traced model call. Override with
+  // MODEL_PRICES='{"model-id":{"input":0.1,"output":0.4}}' when Google changes prices.
+  modelPrices: parsePrices(process.env.MODEL_PRICES),
 };
 
+function parsePrices(v: string | undefined): Record<string, { input: number; output: number }> {
+  const defaults = {
+    'gemini-flash-lite-latest': { input: 0.1, output: 0.4 },
+    'gemini-flash-latest': { input: 0.3, output: 2.5 },
+  };
+  if (!v) return defaults;
+  try {
+    return { ...defaults, ...JSON.parse(v) };
+  } catch {
+    console.warn('[config] MODEL_PRICES is not valid JSON; using defaults');
+    return defaults;
+  }
+}
+
 export const useSupabase = Boolean(config.supabaseUrl && config.supabaseServiceRoleKey);
+
+const DEV_DEFAULTS = new Set(['admin-dev-key', 'cron-dev-secret', 'dev-only-change-me', 'changeme', 'change-me']);
+
+/**
+ * In production every secret must be set to a long, non-default value — otherwise anyone who has
+ * read this repo could open the admin console or trigger jobs. Returns the problems found.
+ */
+export function productionSecretProblems(env: NodeJS.ProcessEnv = process.env): string[] {
+  const required: Array<[string, string | undefined]> = [
+    ['ADMIN_API_KEY', env.ADMIN_API_KEY],
+    ['CRON_SECRET', env.CRON_SECRET],
+  ];
+  // Device-token signing is only used without Supabase.
+  if (!(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY)) required.push(['LOCAL_AUTH_SECRET', env.LOCAL_AUTH_SECRET]);
+  const problems: string[] = [];
+  for (const [name, value] of required) {
+    if (!value) problems.push(`${name} is not set`);
+    else if (DEV_DEFAULTS.has(value)) problems.push(`${name} is still the development default`);
+    else if (value.length < 24) problems.push(`${name} must be at least 24 characters`);
+  }
+  return problems;
+}
 export const useGemini = Boolean(config.geminiApiKey);
 if (config.geminiApiKey && !process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
   process.env.GOOGLE_GENERATIVE_AI_API_KEY = config.geminiApiKey;

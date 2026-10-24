@@ -22,12 +22,12 @@ export const submissionHooks = {
   schedule: (_complaintId: string, _atMs: number) => {},
 };
 
-export async function runSubmission(complaintId: string) {
+export async function runSubmission(complaintId: string, citizenConfirmed = false) {
   const c = await repo.getComplaint(complaintId);
   if (!c || !['drafted', 'submission_failed'].includes(c.status)) return;
   await repo.updateComplaint(complaintId, { status: 'submitting', submit_after: null });
   try {
-    const r = await runAgent(submissionAgent, { complaintId }, { complaintId, userId: c.user_id });
+    const r = await runAgent(submissionAgent, { complaintId, citizenConfirmed }, { complaintId, userId: c.user_id });
     const after = await repo.getComplaint(complaintId);
     if (after?.status === 'submitting') {
       // The agent ended without a terminal decision — never leave a complaint stuck.
@@ -102,7 +102,8 @@ Do not skip steps and do not call a step twice unless it returned an error.`,
             submissionHooks.schedule(c.id, Date.now());
             return { scheduled: true, mode: 'manual_handoff_expected' };
           }
-          if (!c.auto_submit) {
+          // Real portals always wait for the citizen's explicit confirmation, whatever the auto-submit setting.
+          if (!c.auto_submit || !j!.is_sandbox) {
             await repo.updateComplaint(c.id, { status: 'drafted', submit_after: null });
             await notifyUser(c.user_id, c.id, 'Your complaint is ready to review', `Drafted for ${c.jurisdiction_department}. Review it and tap Submit when you're happy.`);
             return { scheduled: false, awaiting_user_approval: true };

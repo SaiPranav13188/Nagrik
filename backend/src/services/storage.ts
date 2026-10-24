@@ -26,6 +26,19 @@ export async function savePhoto(userId: string, buffer: Buffer, mimeType: string
   return `${config.publicBaseUrl}/uploads/${key}`;
 }
 
+/**
+ * True only for a photo this user uploaded through savePhoto. Clients send photoUrl back after a
+ * clarification round; anything else would let them make the server fetch arbitrary URLs (SSRF).
+ */
+export function isOwnPhotoUrl(url: string, userId: string) {
+  const prefixes = [`${config.publicBaseUrl}/uploads/${userId}/`];
+  if (repo instanceof SupabaseRepo) {
+    // getPublicUrl strips trailing slashes; put it back so "<user>/" can't match "<user>x/".
+    prefixes.push(repo.client.storage.from(config.supabasePhotoBucket).getPublicUrl(userId).data.publicUrl.replace(/\/?$/, '/'));
+  }
+  return !url.includes('..') && prefixes.some((p) => url.startsWith(p));
+}
+
 /** Returns image bytes for a stored photo URL (local file or remote). */
 export async function loadPhoto(url: string): Promise<{ data: Buffer; mimeType: string }> {
   const localPrefix = `${config.publicBaseUrl}/uploads/`;

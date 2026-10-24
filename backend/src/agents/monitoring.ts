@@ -22,6 +22,8 @@ export function isDueForCheck(c: Complaint, force = false) {
 
 export interface MonitorInput {
   complaintId: string;
+  /** The citizen explicitly confirmed "escalate now" (the route enforces the waiting period). */
+  citizenRequestedEscalation?: boolean;
 }
 
 export const complaintMonitorAgent: AgentDefinition<MonitorInput> = {
@@ -41,8 +43,10 @@ Procedure:
 Guardrail: submit_escalation will refuse unverified contacts — if it does, tell the citizen via notify_user that the escalation letter is ready for them to send, and stop.
 Finish with a one-line summary of what you did.`,
 
-  buildPrompt({ complaintId }) {
-    return `Monitor complaint_id ${complaintId}. Escalation threshold: ${config.escalationThresholdDays} days.`;
+  buildPrompt({ complaintId, citizenRequestedEscalation }) {
+    return `Monitor complaint_id ${complaintId}. Escalation threshold: ${config.escalationThresholdDays} days.${
+      citizenRequestedEscalation ? '\nThe citizen has asked to escalate now: unless it is already resolved, escalate to the next level even if the threshold has not passed.' : ''
+    }`;
   },
 
   buildTools(_ctx, { complaintId }) {
@@ -237,7 +241,7 @@ ${p?.full_name ?? 'A concerned resident'}${p?.phone ? `\nMobile: ${p.phone}` : '
 
     const nextLevel = (t.escalation_level ?? 0) + 1;
     const hasLevel = (t.escalation_chain ?? []).some((e: any) => e.level === nextLevel);
-    const due = chk?.isRejected || t.days_since_last_action >= t.escalation_threshold_days;
+    const due = chk?.isRejected || t.days_since_last_action >= t.escalation_threshold_days || /citizen has asked to escalate now/.test(s.userText);
     if (due && hasLevel) {
       const d = s.last('draft_escalation');
       if (!d)

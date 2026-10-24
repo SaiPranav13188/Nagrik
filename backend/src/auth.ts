@@ -62,14 +62,22 @@ export async function requireUser(req: Request, res: Response, next: NextFunctio
   next();
 }
 
+/** Constant-time comparison so the key can't be guessed byte by byte from response times. */
+export function secretMatches(given: unknown, expected: string) {
+  if (typeof given !== 'string' || !given || !expected) return false;
+  const a = createHash('sha256').update(given).digest();
+  const b = createHash('sha256').update(expected).digest();
+  return timingSafeEqual(a, b);
+}
+
+// Header only: keys in query strings end up in proxy logs and browser history.
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
-  const key = req.headers['x-admin-key'] || req.query.key;
-  if (key !== config.adminApiKey) return res.status(401).json({ error: 'Admin key required' });
+  if (!secretMatches(req.headers['x-admin-key'], config.adminApiKey)) return res.status(401).json({ error: 'Admin key required' });
   next();
 }
 
 export function requireCron(req: Request, res: Response, next: NextFunction) {
   const key = req.headers['x-cron-secret'] || req.headers.authorization?.replace(/^Bearer\s+/i, '');
-  if (key !== config.cronSecret) return res.status(401).json({ error: 'Invalid cron secret' });
+  if (!secretMatches(key, config.cronSecret)) return res.status(401).json({ error: 'Invalid cron secret' });
   next();
 }

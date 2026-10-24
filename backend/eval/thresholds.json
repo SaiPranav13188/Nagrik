@@ -1,0 +1,15 @@
+{
+  "_comment": "Minimum scores for `npm run eval:intake -- --check`. CI runs the offline planner on every push; raise these as the agents improve, never lower them to make CI green.",
+  "offline": {
+    "intake_accuracy": 0.9,
+    "jurisdiction_accuracy": 0.95,
+    "drafting_pass_rate": 0.95,
+    "max_misroutes": 0
+  },
+  "gemini": {
+    "intake_accuracy": 0.85,
+    "jurisdiction_accuracy": 0.9,
+    "drafting_pass_rate": 0.9,
+    "max_misroutes": 0
+  }
+}

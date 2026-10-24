@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      gemini_eval:
+        description: Also run the eval against Gemini (needs the GEMINI_API_KEY secret, ~40 min on the free tier)
+        type: boolean
+        default: false
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Install headless Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Playwright harness (sandbox portal)
+        run: npm run test:harness
+
+      - name: Failure-mode tests
+        run: npm run test:failures
+
+      - name: MCP server tests
+        run: npm run test:mcp
+
+      - name: Tracing wiring (fake Langfuse endpoint)
+        run: npm run test:tracing
+
+      - name: Agent eval (offline planner, fails on regression)
+        run: npm run eval:intake -- --offline --check
+
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results-offline
+          path: backend/eval/results/offline.json
+          if-no-files-found: ignore
+
+  gemini-eval:
+    if: github.event_name == 'workflow_dispatch' && inputs.gemini_eval
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --ignore-scripts
+      - name: Agent eval (Gemini)
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_BASE_URL: ${{ secrets.LANGFUSE_BASE_URL }}
+        run: npm run eval:intake -- --check
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-results-gemini
+          path: backend/eval/results/gemini.json
+          if-no-files-found: ignore

@@ -32,6 +32,11 @@ export async function reverseGeocode(lat: number, lng: number): Promise<GeocodeR
   return result;
 }
 
+/** Seed a known answer (used by the eval so it never calls the public geocoders). */
+export function primeGeocodeCache(lat: number, lng: number, result: GeocodeResult) {
+  cache.set(`${lat.toFixed(5)},${lng.toFixed(5)}`, result);
+}
+
 async function nominatim(lat: number, lng: number): Promise<GeocodeResult> {
   // Usage policy: max 1 request/second.
   const wait = lastCall + 1100 - Date.now();

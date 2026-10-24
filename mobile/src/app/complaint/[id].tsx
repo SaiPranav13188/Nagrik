@@ -22,7 +22,7 @@ import { useApi } from '../../lib/useApi';
 import { radius, space, useTheme } from '../../theme';
 
 const RECHECK_DAYS = 3;
-const RETRYABLE = ['portal_error', 'navigation_failed', 'selector_mismatch', 'missing_citizen_details'];
+const RETRYABLE = ['portal_error', 'navigation_failed', 'selector_mismatch', 'missing_citizen_details', 'awaiting_confirmation'];
 
 export default function ComplaintScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();

@@ -10,9 +10,11 @@ import type { AgentDefinition } from '../ai/runtime.js';
 
 export interface SubmissionInput {
   complaintId: string;
+  /** True only when this run was started by the citizen tapping Submit/Retry. Required for live portals. */
+  citizenConfirmed?: boolean;
 }
 
-export const FAILURE_CATEGORIES = ['captcha', 'otp_gate', 'selector_mismatch', 'portal_error', 'unverified_portal', 'no_form_mapping', 'missing_citizen_details', 'navigation_failed'] as const;
+export const FAILURE_CATEGORIES = ['captcha', 'otp_gate', 'selector_mismatch', 'portal_error', 'unverified_portal', 'no_form_mapping', 'missing_citizen_details', 'navigation_failed', 'awaiting_confirmation'] as const;
 
 export const submissionAgent: AgentDefinition<SubmissionInput> = {
   name: 'submission_agent',
@@ -26,13 +28,16 @@ Procedure:
 3. If the outcome is blocked_by_captcha → call detect_captcha on the snapshot to record evidence, then flag_submission_failure (category captcha or otp_gate). NEVER try to solve or bypass a CAPTCHA/OTP.
 4. If the outcome is selector_mismatch / portal_error / navigation_failed → flag_submission_failure with that category. Do not retry more than once, and never submit a partially filled form.
 5. If submitted → call extract_confirmation_details on the snapshot, then mark_submitted with the tracking ID (or null if none was shown).
+Real (non-sandbox) portals are only filed after the citizen confirms; get_form_selectors reports awaiting_confirmation otherwise — flag it, never work around it.
 Every failure hands the complaint back to the citizen with the drafted text and portal link, so be specific and plain-spoken in the reason.`,
 
   buildPrompt({ complaintId }) {
     return `Submit complaint_id ${complaintId}.`;
   },
 
-  buildTools(_ctx, { complaintId }) {
+  buildTools(_ctx, { complaintId, citizenConfirmed = false }) {
+    // Set only by a real successful form submission in this run; mark_submitted requires it.
+    let submittedThisRun = false;
     return {
       get_form_selectors: tool({
         description: "Load the reviewed Playwright field mapping for the complaint's portal, plus readiness checks.",
@@ -51,6 +56,8 @@ Every failure hands the complaint back to the citizen with the drafted text and 
           if (!j.form_selectors) return { ...base, ready: false, blocker: 'no_form_mapping', detail: 'No reviewed form mapping for this portal yet.' };
           if (!p?.full_name || !p?.phone) return { ...base, ready: false, blocker: 'missing_citizen_details', detail: 'Citizen name/phone missing from profile.' };
           if (!c.draft_text) return { ...base, ready: false, blocker: 'portal_error', detail: 'No draft saved.' };
+          // Guardrail: a real government portal is never filed without the citizen's explicit go-ahead.
+          if (!j.is_sandbox && !citizenConfirmed) return { ...base, ready: false, blocker: 'awaiting_confirmation', detail: 'Real portal: waiting for the citizen to confirm.' };
           return { ...base, ready: true, field_count: j.form_selectors.fields.length, fields: j.form_selectors.fields.map((f) => f.source) };
         },
       }),
@@ -64,6 +71,8 @@ Every failure hands the complaint back to the citizen with the drafted text and 
           // Guardrail re-checked at execution time — the model cannot talk its way past it.
           if (!j || j.review_status !== 'approved' || !j.form_selectors) return { outcome: 'refused', message: 'Portal not approved or not mapped.' };
           if (portal_url !== j.portal_url) return { outcome: 'refused', message: 'portal_url does not match the reviewed mapping.' };
+          if (!j.is_sandbox && !citizenConfirmed) return { outcome: 'refused', message: 'Real portal: the citizen has not confirmed this submission.' };
+          if (j.requires_captcha) return { outcome: 'refused', message: 'Portal needs human verification (CAPTCHA/OTP).' };
           const p = await repo.getProfile(c.user_id);
           let photoPath: string | null = null;
           try {
@@ -84,6 +93,7 @@ Every failure hands the complaint back to the citizen with the drafted text and 
               longitude: c.longitude,
               photo_path: photoPath,
             });
+            if (r.outcome === 'submitted') submittedThisRun = true;
             return r;
           } finally {
             if (photoPath) fs.rm(photoPath, () => {});
@@ -115,6 +125,10 @@ Every failure hands the complaint back to the citizen with the drafted text and 
         description: 'Record a successful submission and notify the citizen. Ends this run.',
         inputSchema: z.object({ complaint_id: z.string(), tracking_id: z.string().nullable() }),
         execute: async ({ complaint_id, tracking_id }) => {
+          // Guardrail: only a form that was actually submitted in this run can be recorded as filed.
+          if (!submittedThisRun || complaint_id !== complaintId) {
+            return { error: 'Refused: no successful portal submission in this run. Call flag_submission_failure instead.' };
+          }
           const c = await repo.updateComplaint(complaint_id, {
             status: 'submitted',
             tracking_id,
@@ -173,6 +187,7 @@ Every failure hands the complaint back to the citizen with the drafted text and 
         unverified_portal: 'We found the likely department, but this portal has not been verified by our team yet, so we will not file automatically. You can file it yourself using the ready text.',
         no_form_mapping: 'This portal is not yet supported for automatic filing. Your complaint text is ready to paste.',
         missing_citizen_details: 'The portal requires your name and mobile number.',
+        awaiting_confirmation: 'This goes to a real government office, so we file it only after you confirm. Review the text and tap Submit.',
         portal_error: o.detail,
       };
       return { tool: 'flag_submission_failure', input: { complaint_id: id, category: o.blocker, reason: reasons[o.blocker] ?? o.detail } };
