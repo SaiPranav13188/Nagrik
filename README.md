@@ -208,7 +208,16 @@ Claude Desktop config (`claude_desktop_config.json`), with the backend running l
 }
 ```
 
-`NAGRIK_DEVICE_ID` works with a backend that has no Supabase. With Supabase, pass `NAGRIK_TOKEN` (a signed-in user's access token) instead.
+`NAGRIK_DEVICE_ID` works with a backend that has no Supabase. With Supabase (the deployed backend), sign in once with the same email code the app uses, then leave both `NAGRIK_DEVICE_ID` and `NAGRIK_TOKEN` unset:
+
+```bash
+cd backend
+npm run mcp:login -- you@example.com          # emails a code
+npm run mcp:login -- you@example.com 123456   # saves ~/.nagrik/mcp-session.json
+claude mcp add nagrik -s user -e NAGRIK_API_URL=https://nagrik-backend-uopu.onrender.com -- npx tsx C:/path/to/Nagrik/backend/src/mcp/server.ts
+```
+
+The server refreshes the saved session itself. The account must already exist (sign in through the app first).
 
 ## Security
 

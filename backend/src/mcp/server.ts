@@ -11,8 +11,8 @@
  *    they return a preview of exactly what would be sent, and where.
  *  - Complaints it reports are never auto-filed (autoSubmit: false), whatever the profile says.
  *
- * Auth: NAGRIK_TOKEN (a Supabase access token from the app) or, against a backend without
- * Supabase, NAGRIK_DEVICE_ID (exchanged for a local device token).
+ * Auth: NAGRIK_TOKEN (a Supabase access token from the app), NAGRIK_DEVICE_ID (exchanged for a
+ * local device token, backend without Supabase), or else the saved sign-in from `npm run mcp:login`.
  *
  * stdout carries the MCP protocol — log to stderr only.
  */
@@ -21,6 +21,7 @@ import path from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import { sessionToken } from './session.js';
 
 const API = (process.env.NAGRIK_API_URL || 'http://localhost:4000').replace(/\/$/, '');
 const ALLOW_LIVE = ['1', 'true', 'yes'].includes((process.env.NAGRIK_MCP_ALLOW_LIVE || '').toLowerCase());
@@ -31,7 +32,12 @@ let token = process.env.NAGRIK_TOKEN || '';
 async function authToken() {
   if (token) return token;
   const deviceId = process.env.NAGRIK_DEVICE_ID;
-  if (!deviceId) throw new Error('Set NAGRIK_TOKEN (Supabase access token) or NAGRIK_DEVICE_ID (backend without Supabase).');
+  if (!deviceId) {
+    // Saved sign-in from `npm run mcp:login` — not cached here because it is refreshed hourly.
+    const saved = await sessionToken();
+    if (saved) return saved;
+    throw new Error('Not signed in. Run: npm run mcp:login -- <email> (or set NAGRIK_TOKEN / NAGRIK_DEVICE_ID).');
+  }
   const r = await fetch(`${API}/auth/local`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ deviceId }) });
   const j = (await r.json().catch(() => ({}))) as { token?: string; error?: string };
   if (!r.ok || !j.token) throw new Error(`Sign-in failed: ${j.error ?? r.status}`);

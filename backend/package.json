@@ -12,6 +12,7 @@
     "postinstall": "playwright install chromium || true",
     "test:failures": "tsx scripts/test-failures.ts",
     "mcp": "tsx src/mcp/server.ts",
+    "mcp:login": "tsx scripts/mcp-login.ts",
     "test:mcp": "tsx scripts/test-mcp.ts",
     "test:tracing": "tsx scripts/test-tracing.ts"
   },
