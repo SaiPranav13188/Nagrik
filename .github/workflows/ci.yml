@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       gemini_eval:
-        description: Also run the eval against Gemini (needs the GEMINI_API_KEY secret, ~40 min on the free tier)
+        description: Also run the eval against Gemini (needs the GEMINI_API_KEY secret, ~2 hours on the free tier)
         type: boolean
         default: false
 
@@ -61,7 +61,7 @@ jobs:
   gemini-eval:
     if: github.event_name == 'workflow_dispatch' && inputs.gemini_eval
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     defaults:
       run:
         working-directory: backend
