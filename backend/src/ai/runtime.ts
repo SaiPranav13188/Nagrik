@@ -3,6 +3,7 @@ import { generateText, hasToolCall, stepCountIs, type LanguageModel, type ModelM
 import { config, useGemini } from '../config.js';
 import { repo } from '../db/index.js';
 import { createOfflineModel, type OfflinePolicy } from './offlineModel.js';
+import { traceAgentRun, traceTool, traced } from './tracing.js';
 
 export interface AgentContext {
   agentName: string;
@@ -61,7 +62,7 @@ function withToolLogging(tools: ToolSet, ctx: AgentContext, record: AgentRunResu
         let output: unknown;
         let error: string | null = null;
         try {
-          output = await exec(input, opts);
+          output = await traceTool(name, input, () => exec(input, opts));
           return output;
         } catch (e) {
           error = (e as Error).message;
@@ -87,7 +88,7 @@ function withToolLogging(tools: ToolSet, ctx: AgentContext, record: AgentRunResu
 }
 
 function geminiModel(): LanguageModel {
-  return google(config.geminiModel);
+  return traced(google(config.geminiModel));
 }
 
 // ───────────── Gemini circuit breaker ─────────────
@@ -103,7 +104,12 @@ export function isQuotaError(e: unknown) {
   return /quota|rate.?limit|RESOURCE_EXHAUSTED|429|exceeded/i.test(m);
 }
 
+let geminiErrors = 0;
+/** Total Gemini failures so far (the eval uses it to spot runs that silently fell back offline). */
+export const geminiErrorCount = () => geminiErrors;
+
 export function noteGeminiError(e: unknown, model: string = config.geminiModel) {
+  geminiErrors++;
   if (!isQuotaError(e)) return;
   const m = String((e as Error)?.message ?? e);
   const retry = Number(m.match(/retry in ([\d.]+)s/i)?.[1] ?? 60);
@@ -136,10 +142,23 @@ const READ_ONLY_TOOLS = new Set([
   'list_submitted_complaints_needing_check',
 ]);
 
-export async function runAgent<I>(
+export function runAgent<I>(
   def: AgentDefinition<I>,
   input: I,
   opts: { complaintId?: string | null; userId?: string | null } = {},
+): Promise<AgentRunResult> {
+  return traceAgentRun(
+    def.name,
+    { complaintId: opts.complaintId ?? null, userId: opts.userId ?? null, input: compact(input) },
+    () => runAgentUntraced(def, input, opts),
+    (r) => ({ model: r.model, fellBackOffline: r.fellBackOffline, tools: r.toolCalls.map((t) => t.toolName), text: r.text }),
+  );
+}
+
+async function runAgentUntraced<I>(
+  def: AgentDefinition<I>,
+  input: I,
+  opts: { complaintId?: string | null; userId?: string | null },
 ): Promise<AgentRunResult> {
   const ctx: AgentContext = {
     agentName: def.name,
@@ -171,7 +190,7 @@ export async function runAgent<I>(
     }
   };
 
-  const offline = () => attempt(createOfflineModel(def.name, def.offlinePolicy), 'offline-planner', !!useGemini);
+  const offline = () => attempt(traced(createOfflineModel(def.name, def.offlinePolicy)), 'offline-planner', !!useGemini);
 
   if (!geminiAvailable()) return offline();
   try {
@@ -199,9 +218,9 @@ export async function runAgent<I>(
 
 /** Single-shot structured/vision helper used *inside* tools (e.g. analyze_photo). */
 export function visionModel(): LanguageModel | null {
-  return geminiAvailable(config.geminiVisionModel) ? google(config.geminiVisionModel) : null;
+  return geminiAvailable(config.geminiVisionModel) ? traced(google(config.geminiVisionModel)) : null;
 }
 
 export function textModel(): LanguageModel | null {
-  return geminiAvailable() ? google(config.geminiModel) : null;
+  return geminiAvailable() ? traced(google(config.geminiModel)) : null;
 }
