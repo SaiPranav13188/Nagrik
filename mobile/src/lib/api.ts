@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import { API_URL } from './config';
-import type { AnalyzeResult, AppNotification, ComplaintDetail, Complaint, IssueType, NearbyItem, Profile } from './types';
+import type { AnalyzeResult, AppNotification, ComplaintDetail, Complaint, HelpReply, IssueType, NearbyItem, Profile } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -141,9 +141,11 @@ export const api = {
   sendEscalation: (id: string, eid: string, subject: string, body: string) =>
     request<ComplaintDetail>(`/complaints/${id}/escalations/${eid}/send`, { method: 'POST', body: { confirm: true, subject, body }, timeoutMs: 45000 }),
   cancelEscalation: (id: string, eid: string) => request<ComplaintDetail>(`/complaints/${id}/escalations/${eid}/cancel`, { method: 'POST' }),
-  // reply is null when the assistant is unavailable (AI quota used up); the app then offers email support.
-  helpChat: (messages: { role: 'user' | 'assistant'; content: string }[], lang: string) =>
-    request<{ reply: string | null; unavailable?: boolean }>('/help/chat', { method: 'POST', body: { messages, lang }, timeoutMs: 60000 }),
+  // source: faq = approved fixed answer, status = built from the complaint data, ai = generated, none = hand-off.
+  helpChat: (messages: { role: 'user' | 'assistant'; content: string }[], lang: string, intent?: string) =>
+    request<HelpReply>('/help/chat', { method: 'POST', body: { messages, lang, intent }, timeoutMs: 60000 }),
+  helpFeedback: (f: { question: string; answer: string; source: HelpReply['source']; topic: string | null; helpful: boolean }) =>
+    request<{ ok: boolean }>('/help/feedback', { method: 'POST', body: f }),
   deleteAccount: () => request<{ deleted: boolean }>('/me', { method: 'DELETE', body: { confirm: true }, timeoutMs: 75000 }),
 };
 

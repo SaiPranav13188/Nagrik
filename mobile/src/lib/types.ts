@@ -135,3 +135,10 @@ export type AnalyzeResult =
   | { result: 'clarification'; intakeId: string; photoUrl: string; question: string; options: Array<{ issue_type: IssueType; label: string }> }
   | { result: 'rejected'; intakeId: string; photoUrl: string; reason: string }
   | { result: 'duplicate'; intakeId: string; photoUrl: string; reason: string; existing: NearbyItem };
+
+export interface HelpReply {
+  reply: string | null;
+  source: 'faq' | 'status' | 'ai' | 'none';
+  topic: string | null;
+  handoff: boolean;
+}

@@ -10,11 +10,17 @@ import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { APP_VERSION, SUPPORT_EMAIL } from '../lib/config';
 import { useI18n, type TKey } from '../lib/i18n';
+import type { HelpReply } from '../lib/types';
 import { radius, space, useTheme } from '../theme';
 
-type Msg = { role: 'user' | 'assistant'; content: string };
+type Msg = { role: 'user' | 'assistant'; content: string; source?: HelpReply['source']; topic?: string | null; question?: string; rated?: boolean };
 
-const SUGGESTIONS: TKey[] = ['helpQ1', 'helpQ2', 'helpQ3'];
+// Each suggestion names its topic, so it always gets the approved fixed answer.
+const SUGGESTIONS: { key: TKey; intent: string }[] = [
+  { key: 'helpQ1', intent: 'action_needed' },
+  { key: 'helpQ2', intent: 'my_complaint' },
+  { key: 'helpQ3', intent: 'escalation' },
+];
 /** The server accepts at most 12 messages; older turns matter little for help questions. */
 const MAX_HISTORY = 10;
 
@@ -40,7 +46,7 @@ export default function Help() {
     }
   };
 
-  const send = async (q = text) => {
+  const send = async (q = text, intent?: string) => {
     const question = q.trim();
     if (!question || busy) return;
     const next: Msg[] = [...messages, { role: 'user', content: question.slice(0, 1000) }];
@@ -48,13 +54,11 @@ export default function Help() {
     setText('');
     setBusy(true);
     try {
-      const r = await api.helpChat(next.slice(-MAX_HISTORY), lang);
-      if (r.reply) {
-        setMessages([...next, { role: 'assistant', content: r.reply }]);
-        setUnavailable(false);
-      } else {
-        setUnavailable(true);
-      }
+      const history = next.slice(-MAX_HISTORY).map(({ role, content }) => ({ role, content }));
+      const r = await api.helpChat(history, lang, intent);
+      if (r.reply) setMessages([...next, { role: 'assistant', content: r.reply, source: r.source, topic: r.topic, question }]);
+      // Older servers send no reply when unavailable; newer ones send a "not sure" reply with handoff.
+      setUnavailable(!r.reply || r.handoff);
     } catch (e) {
       toast(errorMessage(e, t('offline'), t('somethingWrong')), 'error');
     } finally {
@@ -62,25 +66,46 @@ export default function Help() {
     }
   };
 
+  const rate = (i: number, helpful: boolean) => {
+    const m = messages[i];
+    if (!m || m.rated) return;
+    setMessages((all) => all.map((x, j) => (j === i ? { ...x, rated: true } : x)));
+    toast(t('helpThanks'), 'success');
+    api.helpFeedback({ question: m.question ?? '', answer: m.content, source: m.source ?? 'none', topic: m.topic ?? null, helpful }).catch(() => {});
+  };
+
   const bubble = (m: Msg, i: number) => {
     const mine = m.role === 'user';
+    const rateable = !mine && i >= 0 && m.source && m.source !== 'none';
     return (
-      <View
-        key={i}
-        style={{
-          alignSelf: mine ? 'flex-end' : 'flex-start',
-          maxWidth: '85%',
-          paddingHorizontal: space(4),
-          paddingVertical: space(3),
-          borderRadius: radius.lg,
-          borderBottomRightRadius: mine ? 6 : radius.lg,
-          borderBottomLeftRadius: mine ? radius.lg : 6,
-          backgroundColor: mine ? c.primary : c.surface,
-          borderWidth: mine ? 0 : 1,
-          borderColor: c.line,
-        }}
-      >
-        <Text color={mine ? c.primaryInk : c.ink} selectable>{m.content}</Text>
+      <View key={i} style={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '85%', gap: space(1) }}>
+        <View
+          style={{
+            alignSelf: mine ? 'flex-end' : 'flex-start',
+            paddingHorizontal: space(4),
+            paddingVertical: space(3),
+            borderRadius: radius.lg,
+            borderBottomRightRadius: mine ? 6 : radius.lg,
+            borderBottomLeftRadius: mine ? radius.lg : 6,
+            backgroundColor: mine ? c.primary : c.surface,
+            borderWidth: mine ? 0 : 1,
+            borderColor: c.line,
+          }}
+        >
+          <Text color={mine ? c.primaryInk : c.ink} selectable>{m.content}</Text>
+        </View>
+        {m.source === 'ai' && <Text variant="small" tone="faint">{t('helpAiLabel')}</Text>}
+        {rateable && !m.rated && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space(3) }}>
+            <Text variant="small" tone="muted">{t('helpWasHelpful')}</Text>
+            <Pressable onPress={() => rate(i, true)} hitSlop={10} accessibilityRole="button" accessibilityLabel="👍">
+              <Ionicons name="thumbs-up-outline" size={18} color={c.inkSoft} />
+            </Pressable>
+            <Pressable onPress={() => rate(i, false)} hitSlop={10} accessibilityRole="button" accessibilityLabel="👎">
+              <Ionicons name="thumbs-down-outline" size={18} color={c.inkSoft} />
+            </Pressable>
+          </View>
+        )}
       </View>
     );
   };
@@ -105,10 +130,10 @@ export default function Help() {
         {bubble({ role: 'assistant', content: t('helpIntro') }, -1)}
         {messages.length === 0 && (
           <View style={{ gap: space(2), alignItems: 'flex-start' }}>
-            {SUGGESTIONS.map((k) => (
+            {SUGGESTIONS.map(({ key: k, intent }) => (
               <Pressable
                 key={k}
-                onPress={() => void send(t(k))}
+                onPress={() => void send(t(k), intent)}
                 style={({ pressed }) => ({ paddingHorizontal: space(4), paddingVertical: space(2), borderRadius: radius.pill, borderWidth: 1.5, borderColor: c.primary, opacity: pressed ? 0.7 : 1 })}
               >
                 <Text variant="bodyStrong" color={c.primary}>{t(k)}</Text>

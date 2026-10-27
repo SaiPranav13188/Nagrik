@@ -50,6 +50,9 @@ jobs:
       - name: Agent eval (offline planner, fails on regression)
         run: npm run eval:intake -- --offline --check
 
+      - name: Help assistant (fixed answers, status answers, button names — every case must pass)
+        run: npm run eval:help -- --offline
+
       - name: Upload eval results
         if: always()
         uses: actions/upload-artifact@v4
@@ -80,6 +83,11 @@ jobs:
           LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
           LANGFUSE_BASE_URL: ${{ secrets.LANGFUSE_BASE_URL }}
         run: npm run eval:intake -- --check
+      - name: Help assistant (Gemini classifier and AI fallback)
+        if: always()
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: npm run eval:help
       - uses: actions/upload-artifact@v4
         if: always()
         with:

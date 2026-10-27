@@ -9,6 +9,7 @@
     "test:harness": "tsx scripts/test-harness.ts",
     "test:e2e": "tsx scripts/e2e.ts",
     "eval:intake": "tsx scripts/eval-intake.ts",
+    "eval:help": "tsx scripts/eval-help.ts",
     "postinstall": "playwright install chromium || true",
     "test:failures": "tsx scripts/test-failures.ts",
     "mcp": "tsx src/mcp/server.ts",
