@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1008087980626",
+    "project_id": "nagrik-fecbf",
+    "storage_bucket": "nagrik-fecbf.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1008087980626:android:cd43fb43c00d2b86a0dd8b",
+        "android_client_info": {
+          "package_name": "app.nagrik.civic"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAeXZL1n-bTMnNQNlO2X7r5mNuQgg7AWFE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
