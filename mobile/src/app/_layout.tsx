@@ -92,6 +92,7 @@ function RootNavigator() {
           <Stack.Screen name="report" options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="complaint/[id]" />
           <Stack.Screen name="edit-draft/[id]" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+          <Stack.Screen name="help" />
           <Stack.Screen name="notifications-setup" options={{ presentation: 'modal', animation: 'fade' }} />
         </Stack.Protected>
       </Stack>

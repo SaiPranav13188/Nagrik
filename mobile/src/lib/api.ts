@@ -141,6 +141,9 @@ export const api = {
   sendEscalation: (id: string, eid: string, subject: string, body: string) =>
     request<ComplaintDetail>(`/complaints/${id}/escalations/${eid}/send`, { method: 'POST', body: { confirm: true, subject, body }, timeoutMs: 45000 }),
   cancelEscalation: (id: string, eid: string) => request<ComplaintDetail>(`/complaints/${id}/escalations/${eid}/cancel`, { method: 'POST' }),
+  // reply is null when the assistant is unavailable (AI quota used up); the app then offers email support.
+  helpChat: (messages: { role: 'user' | 'assistant'; content: string }[], lang: string) =>
+    request<{ reply: string | null; unavailable?: boolean }>('/help/chat', { method: 'POST', body: { messages, lang }, timeoutMs: 60000 }),
   deleteAccount: () => request<{ deleted: boolean }>('/me', { method: 'DELETE', body: { confirm: true }, timeoutMs: 75000 }),
 };
 

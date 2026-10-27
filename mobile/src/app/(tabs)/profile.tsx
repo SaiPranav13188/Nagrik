@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, Card, Divider, Input, Text } from '../../components/ui';
 import { Sheet } from '../../components/Sheet';
@@ -167,6 +168,8 @@ export default function ProfileTab() {
       </Card>
 
       <Card style={{ paddingVertical: space(1) }}>
+        <Row icon="chatbubbles-outline" label={t('helpSupport')} onPress={() => router.push('/help')} />
+        <Divider />
         <Row icon="sparkles-outline" label={t('howItWorks')} onPress={() => setSheet('how')} />
         <Divider />
         <Row icon="lock-closed-outline" label={t('privacy')} onPress={() => setSheet('privacy')} />

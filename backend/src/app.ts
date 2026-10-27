@@ -6,6 +6,7 @@ import { apiLimiter, failedAuthLimiter } from './rateLimits.js';
 import { repo } from './db/index.js';
 import { complaintsRouter } from './routes/complaints.js';
 import { authRouter, meRouter } from './routes/me.js';
+import { helpRouter } from './routes/help.js';
 import { adminRouter, jobsRouter } from './routes/admin.js';
 import { sandboxPortalRouter } from './sandboxPortal/router.js';
 import { uploadsDir } from './services/storage.js';
@@ -64,6 +65,7 @@ app.use('/uploads', express.static(uploadsDir, { maxAge: '7d', fallthrough: fals
 app.use('/auth', authRouter);
 app.use('/me', meRouter);
 app.use('/complaints', complaintsRouter);
+app.use('/help', helpRouter);
 app.use('/jobs', jobsRouter);
 app.use('/admin', adminRouter);
 app.use('/sandbox-portal', sandboxPortalRouter);
