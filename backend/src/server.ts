@@ -4,6 +4,7 @@ import { recoverOnBoot, startCron } from './services/scheduler.js';
 import { closeBrowser } from './automation/portal.js';
 import { shutdownTracing } from './ai/tracing.js';
 import { app } from './app.js';
+import { loadSandboxState } from './sandboxPortal/router.js';
 
 // Never run in production with missing or default secrets.
 if (config.nodeEnv === 'production') {
@@ -15,6 +16,7 @@ if (config.nodeEnv === 'production') {
 }
 
 await initRepo();
+await loadSandboxState();
 const server = app.listen(config.port, () => {
   console.log(`\n🏛️  Nagrik backend on ${config.publicBaseUrl}`);
   console.log(`   data=${repo.kind}  ai=${useGemini ? config.geminiModel : 'offline-planner'}  portals=${config.portalMode}`);

@@ -13,7 +13,7 @@ import { jurisdictionAgent } from '../agents/jurisdiction.js';
 import { draftingAgent } from '../agents/drafting.js';
 import { isOwnPhotoUrl, savePhoto } from '../services/storage.js';
 import { reverseGeocode } from '../services/geocode.js';
-import { humanizeLogs } from '../services/activity.js';
+import { escalationSummary, friendlyStatusCheck, humanizeLogs } from '../services/activity.js';
 import { findNearby, publicView, supportedSet } from '../services/nearby.js';
 import { notifySupporters, notifyUser } from '../services/notify.js';
 import { enqueueSubmission, holdSubmission, runMonitorSweep, startPipeline } from '../services/scheduler.js';
@@ -85,8 +85,11 @@ async function complaintDetail(c: Complaint, role: 'owner' | 'supporter' = 'owne
           escalation_chain: j.escalation_contact.map((e) => ({ level: e.level, title: e.title, channel: e.channel, contact: e.contact, verified: e.verified })),
         }
       : null,
-    status_checks: checks,
-    escalations,
+    status_checks: checks.map((s) => ({ ...s, status_found: friendlyStatusCheck(s.status_found) })),
+    escalations: escalations.map((e) => ({
+      ...e,
+      action_taken: escalationSummary(e, j?.escalation_contact.find((s) => s.level === e.escalation_level)?.title ?? null),
+    })),
     activity: role === 'owner' ? humanizeLogs(logs) : [],
     viewer_role: role,
     server_time: new Date().toISOString(),

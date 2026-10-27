@@ -3,6 +3,8 @@ import path from 'node:path';
 import express, { Router } from 'express';
 import multer from 'multer';
 import { config } from '../config.js';
+import { repo } from '../db/index.js';
+import { SupabaseRepo } from '../db/supabaseRepo.js';
 
 /**
  * A realistic stand-in for a municipal grievance portal — deliberately plain server-rendered HTML
@@ -39,7 +41,66 @@ const file = path.resolve(config.localDataDir, 'sandbox-portal.json');
 let state: PortalState = fs.existsSync(file)
   ? JSON.parse(fs.readFileSync(file, 'utf8'))
   : { seq: 0, captchaEnabled: false, grievances: [] };
-const save = () => fs.writeFileSync(file, JSON.stringify(state, null, 1));
+
+// Render's free disk is wiped on every restart, which lost grievances (status checks then timed out)
+// and restarted numbering at 000001. With Supabase, the state also lives in a private storage bucket.
+const BUCKET = 'sandbox-portal';
+const KEY = 'state.json';
+let uploads = Promise.resolve();
+const save = () => {
+  fs.writeFileSync(file, JSON.stringify(state, null, 1));
+  if (!(repo instanceof SupabaseRepo)) return;
+  const bucket = repo.client.storage.from(BUCKET);
+  const body = JSON.stringify(state);
+  // Chained so an older snapshot never overwrites a newer one.
+  uploads = uploads.then(async () => {
+    const { error } = await bucket.upload(KEY, body, { contentType: 'application/json', upsert: true });
+    if (error) console.warn('[sandbox] could not save portal state:', error.message);
+  });
+};
+
+/** Loads the persisted portal state; the first time, rebuilds it from complaints already filed here. */
+export async function loadSandboxState() {
+  if (!(repo instanceof SupabaseRepo)) return;
+  const storage = repo.client.storage;
+  await storage.createBucket(BUCKET, { public: false }).catch(() => undefined); // already exists → error, fine
+  const { data } = await storage.from(BUCKET).download(KEY);
+  if (data) {
+    state = JSON.parse(await data.text());
+    return;
+  }
+  const { data: rows, error } = await repo.client
+    .from('complaints')
+    .select('tracking_id, status, draft_subject, description, address, latitude, longitude, submitted_at, created_at')
+    .like('tracking_id', 'WNP/%');
+  if (error) return console.warn('[sandbox] could not rebuild portal state:', error.message);
+  const seqOf = (no: string) => Number(no.split('/').pop()) || 0;
+  for (const r of rows ?? []) {
+    if (state.grievances.some((g) => g.no === r.tracking_id)) continue;
+    const at = r.submitted_at ?? r.created_at;
+    const resolved = r.status === 'resolved';
+    state.grievances.push({
+      no: r.tracking_id,
+      name: '',
+      mobile: '',
+      email: '',
+      category: '',
+      subject: r.draft_subject ?? '',
+      description: r.description ?? '',
+      location: r.address ?? '',
+      lat: r.latitude != null ? String(r.latitude) : '',
+      lng: r.longitude != null ? String(r.longitude) : '',
+      hasPhoto: false,
+      status: resolved ? 'Resolved' : 'Registered',
+      remarks: resolved ? 'Work completed.' : 'Grievance received and forwarded to the concerned section.',
+      createdAt: at,
+      updatedAt: at,
+    });
+  }
+  state.seq = Math.max(state.seq, ...state.grievances.map((g) => seqOf(g.no)));
+  save();
+  console.log(`[sandbox] rebuilt portal state: ${state.grievances.length} grievance(s), next no. ${state.seq + 1}`);
+}
 
 export const sandboxState = {
   get: () => state,

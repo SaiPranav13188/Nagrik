@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, View, useWindowDimensions } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FlatList, Pressable, RefreshControl, ScrollView, View, useWindowDimensions } from 'react-native';
 import * as Location from 'expo-location';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,14 +8,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, EmptyState, Skeleton, Text } from '../../components/ui';
 import { StatusPill } from '../../components/complaint';
 import { IssuePreview, ResidentsPill, formatDistance } from '../../components/community';
-import { NearbyMap } from '../../components/NearbyMap';
+import { NearbyMap, type NearbyMapHandle } from '../../components/NearbyMap';
 import { Sheet } from '../../components/Sheet';
 import { useToast } from '../../components/Toast';
 import { api, errorMessage } from '../../lib/api';
 import { resolveMediaUrl } from '../../lib/config';
-import { issueMeta } from '../../lib/format';
-import { useI18n } from '../../lib/i18n';
-import type { NearbyItem } from '../../lib/types';
+import { issueMeta, statusStyle } from '../../lib/format';
+import { useI18n, type TKey } from '../../lib/i18n';
+import type { IssueType, NearbyItem } from '../../lib/types';
 import { radius, space, useTheme } from '../../theme';
 
 const RADIUS_M = 3000;
@@ -25,13 +25,16 @@ export default function Nearby() {
   const { t } = useI18n();
   const toast = useToast();
   const insets = useSafeAreaInsets();
-  const { height } = useWindowDimensions();
+  const { height, width } = useWindowDimensions();
   const [center, setCenter] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locError, setLocError] = useState(false);
   const [items, setItems] = useState<NearbyItem[] | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [selected, setSelected] = useState<NearbyItem | null>(null);
   const [busy, setBusy] = useState(false);
+  const [view, setView] = useState<'map' | 'list'>('map');
+  const [filter, setFilter] = useState<IssueType | null>(null);
+  const mapRef = useRef<NearbyMapHandle>(null);
 
   const load = useCallback(async (at: { latitude: number; longitude: number }) => {
     try {
@@ -100,47 +103,116 @@ export default function Nearby() {
     }
   };
 
-  const mapHeight = Math.round(height * 0.38);
+  // Filters apply to both views; types only appear once something of that type is nearby.
+  const types = useMemo(() => {
+    const counts = new Map<IssueType, number>();
+    for (const i of items ?? []) counts.set(i.issue_type ?? 'other', (counts.get(i.issue_type ?? 'other') ?? 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  }, [items]);
+  const shown = useMemo(() => (items ?? []).filter((i) => !filter || (i.issue_type ?? 'other') === filter), [items, filter]);
+  const statuses = useMemo(() => [...new Set(shown.map((i) => i.status))], [shown]);
+
+  const chip = (key: string, label: string, active: boolean, onPress: () => void, icon?: React.ComponentProps<typeof Ionicons>['name'], tint?: string) => (
+    <Pressable
+      key={key}
+      onPress={onPress}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: space(3), height: 34, borderRadius: radius.pill, borderWidth: 1, borderColor: active ? c.primary : c.line, backgroundColor: active ? c.primarySoft : c.surface }}
+    >
+      {icon && <Ionicons name={icon} size={14} color={active ? c.primary : tint ?? c.muted} />}
+      <Text variant="smallStrong" color={active ? c.primary : c.inkSoft}>{label}</Text>
+    </Pressable>
+  );
+
+  const mapButton = (icon: React.ComponentProps<typeof Ionicons>['name'], label: string, onPress: () => void) => (
+    <Pressable onPress={onPress} hitSlop={6} accessibilityLabel={label} style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, alignItems: 'center', justifyContent: 'center', elevation: 3, shadowColor: c.shadow, shadowOpacity: 0.15, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } }}>
+      <Ionicons name={icon} size={20} color={c.ink} />
+    </Pressable>
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg, paddingTop: insets.top }}>
-      <View style={{ paddingHorizontal: space(5), paddingVertical: space(3), flexDirection: 'row', alignItems: 'center' }}>
+      <View style={{ paddingHorizontal: space(5), paddingTop: space(3), paddingBottom: space(2), flexDirection: 'row', alignItems: 'center', gap: space(3) }}>
         <View style={{ flex: 1 }}>
           <Text variant="title">{t('nearbyTitle')}</Text>
           <Text variant="small" tone="muted">
             {t('nearbySubtitle', { km: RADIUS_M / 1000 })}
-            {items ? ` · ${items.length}` : ''}
+            {items ? ` · ${t('nearbyCount', { n: items.length })}` : ''}
           </Text>
         </View>
-        <Pressable onPress={locate} hitSlop={10} accessibilityLabel={t('useGps')} style={{ width: 42, height: 42, borderRadius: 14, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, alignItems: 'center', justifyContent: 'center' }}>
-          <Ionicons name="locate" size={20} color={c.primary} />
-        </Pressable>
+        {/* Map / List switch */}
+        <View style={{ flexDirection: 'row', backgroundColor: c.surfaceAlt, borderRadius: 12, padding: 3 }}>
+          {(['map', 'list'] as const).map((v) => (
+            <Pressable
+              key={v}
+              onPress={() => setView(v)}
+              accessibilityLabel={t(v === 'map' ? 'viewMap' : 'viewList')}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: space(3), height: 34, borderRadius: 10, backgroundColor: view === v ? c.surface : 'transparent' }}
+            >
+              <Ionicons name={v === 'map' ? 'map' : 'list'} size={15} color={view === v ? c.primary : c.muted} />
+              <Text variant="smallStrong" color={view === v ? c.primary : c.muted}>{t(v === 'map' ? 'viewMap' : 'viewList')}</Text>
+            </Pressable>
+          ))}
+        </View>
       </View>
+
+      {types.length > 1 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: space(4), paddingBottom: space(3), gap: space(2) }}>
+          {chip('all', `${t('filterAll')} · ${items?.length ?? 0}`, !filter, () => setFilter(null))}
+          {types.map(([type, n]) => {
+            const meta = issueMeta(type);
+            return chip(type, `${t(meta.key)} · ${n}`, filter === type, () => setFilter(filter === type ? null : type), meta.icon, meta.tint);
+          })}
+        </ScrollView>
+      )}
 
       {locError && !center ? (
         <EmptyState icon="location-outline" title={t('nearbyTitle')} body={t('nearbyNeedLocation')}>
           <Button title={t('useGps')} icon="locate" size="md" onPress={locate} style={{ marginTop: space(3) }} />
         </EmptyState>
+      ) : view === 'map' ? (
+        center ? (
+          <View style={{ flex: 1 }}>
+            <NearbyMap
+              ref={mapRef}
+              center={center}
+              radiusM={RADIUS_M}
+              items={shown}
+              selectedId={selected?.id ?? null}
+              onSelect={(id) => setSelected((items ?? []).find((i) => i.id === id) ?? null)}
+            />
+            {/* Controls float on the map; the map itself gets every drag, so panning never scrolls the page. */}
+            <View style={{ position: 'absolute', right: space(4), top: space(3), gap: space(2) }}>
+              {mapButton('locate', t('centerOnMe'), () => mapRef.current?.recenter())}
+              {mapButton('add', t('zoomIn'), () => mapRef.current?.zoom(1))}
+              {mapButton('remove', t('zoomOut'), () => mapRef.current?.zoom(-1))}
+              {mapButton('refresh', t('refresh'), () => void refresh())}
+            </View>
+            {statuses.length > 0 && (
+              <View style={{ position: 'absolute', left: space(4), bottom: space(4) + insets.bottom + 64, flexDirection: 'row', flexWrap: 'wrap', gap: space(2), maxWidth: width - space(24), backgroundColor: c.surface, borderRadius: radius.md, borderWidth: 1, borderColor: c.line, paddingHorizontal: space(3), paddingVertical: space(2) }}>
+                {statuses.map((s) => (
+                  <View key={s} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                    <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: statusStyle(s, c).fg }} />
+                    <Text variant="small" style={{ fontSize: 11 }}>{t(`status_${s}` as TKey)}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+            {items !== null && shown.length === 0 && (
+              <View style={{ position: 'absolute', left: space(4), right: space(16), top: space(3), backgroundColor: c.surface, borderRadius: radius.md, borderWidth: 1, borderColor: c.line, padding: space(3) }}>
+                <Text variant="smallStrong">{t('nearbyEmpty')}</Text>
+                <Text variant="small" tone="muted">{t('nearbyEmptyBody')}</Text>
+              </View>
+            )}
+          </View>
+        ) : (
+          <Skeleton height={height * 0.6} style={{ marginHorizontal: space(4), width: undefined, borderRadius: radius.lg }} />
+        )
       ) : (
         <FlatList
-          data={items ?? []}
+          data={items === null ? [] : shown}
           keyExtractor={(i) => i.id}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={c.primary} colors={[c.primary]} />}
           contentContainerStyle={{ paddingBottom: space(28) }}
-          ListHeaderComponent={
-            center ? (
-              <View style={{ marginHorizontal: space(4), marginBottom: space(4), borderRadius: radius.lg, overflow: 'hidden', borderWidth: 1, borderColor: c.line }}>
-                <NearbyMap
-                  center={center}
-                  items={items ?? []}
-                  height={mapHeight}
-                  onSelect={(id) => setSelected((items ?? []).find((i) => i.id === id) ?? null)}
-                />
-              </View>
-            ) : (
-              <Skeleton height={mapHeight} style={{ marginHorizontal: space(4), marginBottom: space(4), width: undefined, borderRadius: radius.lg }} />
-            )
-          }
           ListEmptyComponent={
             items === null ? (
               <View style={{ paddingHorizontal: space(4), gap: space(3) }}>

@@ -277,7 +277,9 @@ export interface StatusScrape {
   isRejected: boolean;
   captcha: CaptchaDetection | null;
   rawSnapshot: string;
+  /** Plain-language reason, shown to the citizen. */
   message: string;
+  technical?: string;
 }
 
 export async function scrapeStatus(url: string, sel: StatusCheckSelectors, trackingId: string): Promise<StatusScrape> {
@@ -285,12 +287,12 @@ export async function scrapeStatus(url: string, sel: StatusCheckSelectors, track
     try {
       await page.goto(url.replace('{tracking_id}', encodeURIComponent(trackingId)), { waitUntil: 'domcontentloaded', timeout: 30000 });
     } catch (e) {
-      return { ok: false, statusText: null, remarks: null, isResolved: false, isRejected: false, captcha: null, rawSnapshot: '', message: `Status page unreachable: ${(e as Error).message}` };
+      return { ok: false, statusText: null, remarks: null, isResolved: false, isRejected: false, captcha: null, rawSnapshot: '', message: 'The portal website could not be reached.', technical: (e as Error).message };
     }
     const first = await page.content();
     const cap = detectCaptcha(first);
     if (cap.hasCaptcha) {
-      return { ok: false, statusText: null, remarks: null, isResolved: false, isRejected: false, captcha: cap, rawSnapshot: first.slice(0, 4000), message: 'Status page requires human verification.' };
+      return { ok: false, statusText: null, remarks: null, isResolved: false, isRejected: false, captcha: cap, rawSnapshot: first.slice(0, 4000), message: 'The portal asked for a CAPTCHA, so the status could not be checked automatically.' };
     }
     try {
       const input = page.locator(sel.tracking_input).first();
@@ -301,7 +303,10 @@ export async function scrapeStatus(url: string, sel: StatusCheckSelectors, track
       await page.locator(sel.status_text).first().waitFor({ timeout: 10000 });
     } catch (e) {
       const text = await page.locator('body').innerText().catch(() => '');
-      return { ok: false, statusText: null, remarks: null, isResolved: false, isRejected: false, captcha: null, rawSnapshot: text.slice(0, 4000), message: `Status selectors did not match: ${(e as Error).message.split('\n')[0]}` };
+      const message = /no (grievance|complaint|record|application)s? (found|exists?)|not found|invalid (grievance|complaint|reference)/i.test(text)
+        ? `The portal has no record of reference ${trackingId}.`
+        : 'The portal page did not show a status for this reference.';
+      return { ok: false, statusText: null, remarks: null, isResolved: false, isRejected: false, captcha: null, rawSnapshot: text.slice(0, 4000), message, technical: (e as Error).message.split('\n')[0] };
     }
     const statusText = (await page.locator(sel.status_text).first().innerText()).trim();
     const remarks = sel.remarks_text ? (await page.locator(sel.remarks_text).first().innerText().catch(() => ''))?.trim() || null : null;

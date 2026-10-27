@@ -33,6 +33,7 @@ import { runMonitorSweep } from '../src/services/scheduler.js';
 import { uploadsDir } from '../src/services/storage.js';
 import { cleanCitizenText } from '../src/services/citizenText.js';
 import { inventedDetails } from '../src/services/factCheck.js';
+import { friendlyStatusCheck } from '../src/services/activity.js';
 import { complaintFacts, draftingAgent, templateDraft } from '../src/agents/drafting.js';
 import { intakeAgent } from '../src/agents/intake.js';
 
@@ -165,6 +166,13 @@ async function main() {
     c.status === 'submitted' && checks.some((s) => s.status_found.startsWith('check_failed')) && (await repo.listEscalations(cStat.id)).length === 0,
     { status: c.status, checks: checks.map((s) => s.status_found) },
   );
+  check('…and the citizen sees plain words, not a Playwright error', !friendlyStatusCheck(checks[0]?.status_found ?? '').includes('locator'), checks[0]?.status_found);
+
+  const cLost = await complaint(sandboxPothole, { status: 'submitted', tracking_id: 'WNP/2026/888888', submitted_at: new Date().toISOString(), portal_status: 'Registered' });
+  await runAgent(complaintMonitorAgent, { complaintId: cLost.id }, { complaintId: cLost.id });
+  const lost = await repo.listStatusChecks(cLost.id);
+  check('portal has no record of the reference → says so plainly', lost.some((s) => s.status_found.includes('no record of reference WNP/2026/888888')), lost.map((s) => s.status_found));
+  check('old raw errors are reworded for the app', friendlyStatusCheck('check_failed: Status selectors did not match: locator.waitFor: Timeout 10000ms exceeded.') === "Couldn't read the status. The portal page did not show a status for this reference.");
 
   // ───────────────────────────── CAPTCHA / OTP ─────────────────────────────
   section('CAPTCHA and OTP');

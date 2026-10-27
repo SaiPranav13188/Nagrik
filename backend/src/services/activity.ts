@@ -1,4 +1,4 @@
-import type { ToolLog } from '../db/types.js';
+import type { Escalation, ToolLog } from '../db/types.js';
 import { ISSUE_LABELS } from '../agents/intake.js';
 
 export interface ActivityItem {
@@ -20,6 +20,43 @@ const AGENT_LABEL: Record<string, string> = {
   submission_agent: 'Filing',
   monitoring_agent: 'Monitoring',
 };
+
+/** Test offices were once named like "CDMA Telangana (sandbox, no selectors)"; old logs keep that. */
+const officeName = (s: string | null | undefined) => s?.replace(/\s*\(sandbox[^)]*\)/i, ' (test)') ?? null;
+
+/** Rows saved before the plain-language messages hold raw Playwright errors; reword those. */
+export function friendlyCheckError(msg: string | null | undefined): string | null {
+  if (!msg) return null;
+  if (msg.startsWith('Status selectors did not match')) return 'The portal page did not show a status for this reference.';
+  if (msg.startsWith('Status page unreachable')) return 'The portal website could not be reached.';
+  if (msg.startsWith('Status page requires human verification')) return 'The portal asked for a CAPTCHA, so the status could not be checked automatically.';
+  return msg;
+}
+
+/** A status_checks row as the citizen should read it. */
+export function friendlyStatusCheck(found: string) {
+  const failed = found.match(/^check_failed:\s*(.*)$/s);
+  return failed ? `Couldn't read the status. ${friendlyCheckError(failed[1])}` : found;
+}
+
+/** One escalation in plain words, built from its outcome rather than the stored agent note. */
+export function escalationSummary(e: Pick<Escalation, 'delivery_status' | 'recipient'>, office: string | null) {
+  const to = office ?? e.recipient ?? 'the next office';
+  switch (e.delivery_status) {
+    case 'sent':
+      return `Emailed ${to}.`;
+    case 'awaiting_approval':
+      return `Email to ${to} is waiting for your approval.`;
+    case 'cancelled':
+      return `You cancelled the email to ${to}.`;
+    case 'manual_required':
+      return `Letter ready for you to send to ${to}.`;
+    case 'blocked_unverified':
+      return `Letter ready for you to send to ${to}. We couldn't verify this office's contact, so we didn't send it.`;
+    case 'failed':
+      return `Couldn't email ${to}. You can send the letter yourself.`;
+  }
+}
 
 const HIDDEN = new Set(['get_complaint_context', 'get_complaint_timeline', 'run_jurisdiction_agent', 'run_drafting_agent', 'notify_user', 'get_form_selectors', 'save_draft', '__model_error']);
 
@@ -146,19 +183,25 @@ export function humanizeLogs(logs: ToolLog[]): ActivityItem[] {
       case 'check_status_via_scraper':
         icon = 'refresh';
         title = r.ok ? 'Checked status on the portal' : r.available === false ? 'Status check not available for this portal' : 'Status check failed';
-        detail = r.ok ? `${r.statusText}${r.remarks ? ` — ${r.remarks}` : ''}` : r.message ?? null;
+        detail = r.ok ? `${r.statusText}${r.remarks ? ` — ${r.remarks}` : ''}` : friendlyCheckError(r.message);
         tone = r.ok ? (r.isResolved ? 'success' : 'info') : 'warning';
         break;
       case 'draft_escalation':
         icon = 'mail';
         title = `Drafted an escalation (level ${a.escalation_level})`;
-        detail = r.to ?? null;
+        detail = officeName(r.to);
         break;
       case 'prepare_escalation':
         icon = 'trending-up';
         title = r.delivery_status === 'awaiting_approval' ? 'Escalation email ready for your review' : 'Escalation letter ready for you to send';
-        detail = r.to ?? r.portal_url ?? r.error ?? null;
+        detail = officeName(r.to) ?? r.portal_url ?? r.error ?? null;
         tone = 'warning';
+        break;
+      case 'submit_escalation': // before citizen approval existed (logs up to 27 Oct 2026)
+        icon = 'trending-up';
+        title = r.sent ? 'Sent the escalation' : r.error ? 'Escalation not sent' : 'Escalation letter ready for you to send';
+        detail = officeName(r.to);
+        tone = r.sent ? 'success' : 'warning';
         break;
       case 'remind_escalation_approval':
         icon = 'notifications';

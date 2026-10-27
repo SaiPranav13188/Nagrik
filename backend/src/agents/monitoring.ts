@@ -199,7 +199,7 @@ ${p?.full_name ?? 'A concerned resident'}${p?.phone ? `\nMobile: ${p.phone}` : '
             return { sent: false, delivery_status: 'blocked_unverified', message: 'Contact not verified; handed to citizen.' };
           }
           if (step.channel === 'portal') {
-            await repo.addEscalation({ ...base, action_taken: `Escalation letter prepared for ${step.title}; that portal has no verified automation, so the citizen submits it.`, delivery_status: 'manual_required' });
+            await repo.addEscalation({ ...base, action_taken: `Escalation letter ready for the citizen to send to ${step.title} (this office can't be reached automatically).`, delivery_status: 'manual_required' });
             await repo.updateComplaint(c.id, { status: 'escalated', escalation_level });
             return { sent: false, delivery_status: 'manual_required', portal_url: step.contact };
           }

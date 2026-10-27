@@ -179,12 +179,12 @@ export function buildSeedJurisdictions(): Jurisdiction[] {
       escalation_contact: [
         {
           level: 1,
-          title: 'Municipal Commissioner, Wanaparthy (sandbox inbox)',
+          title: 'Municipal Commissioner, Wanaparthy (test)',
           channel: 'email',
           contact: 'commissioner@sandbox.nagrik.local',
           verified: true,
         },
-        { ...LIVE_ESCALATION[1], contact: `${sandboxPortalUrl()}/cdma`, title: 'CDMA Telangana (sandbox, no selectors)' },
+        { ...LIVE_ESCALATION[1], contact: `${sandboxPortalUrl()}/cdma`, title: 'CDMA Telangana (test)' },
       ],
       requires_captcha: false,
       notes: `${notes} ${PORTAL_REQUIREMENTS} SANDBOX mirror of the Wanaparthy grievance form for end-to-end testing.`,
