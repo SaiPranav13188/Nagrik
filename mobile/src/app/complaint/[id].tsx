@@ -315,7 +315,7 @@ export default function ComplaintScreen() {
                 <Ionicons name="time-outline" size={16} color={c.muted} />
                 <Text variant="small" tone="muted" style={{ flex: 1 }}>{t('nextCheck', { when: nextCheckDays ? t('inDays', { n: nextCheckDays }) : t('today') })}</Text>
                 {isOwner && (
-                  <Pressable onPress={() => act('check', () => api.checkStatus(cmp.id))} disabled={busy === 'check'} hitSlop={8}>
+                  <Pressable onPress={() => act('check', () => api.checkStatus(cmp.id), t('statusUpToDate'))} disabled={busy === 'check'} hitSlop={8}>
                     <Text variant="smallStrong" tone="primary">{busy === 'check' ? t('loading') : t('checkNow')}</Text>
                   </Pressable>
                 )}

@@ -399,10 +399,10 @@ complaintsRouter.post('/:id/check-status', agentActionLimiter, async (req, res) 
   const c = await ownComplaint(req, res);
   if (!c) return;
   if (!['submitted', 'escalated'].includes(c.status)) return res.status(409).json({ error: 'Only filed complaints can be checked.' });
-  if (c.last_checked_at && Date.now() - new Date(c.last_checked_at).getTime() < 5 * 60 * 1000) {
-    return res.status(429).json({ error: 'Checked just now — please try again in a few minutes.' });
-  }
-  await runMonitorSweep({ force: true, complaintId: c.id });
+  // Checked within the last few minutes (by the sweep, the citizen, or a previous tap): the stored
+  // status is already fresh, so return it rather than re-hitting the portal or showing an error.
+  const recentlyChecked = c.last_checked_at && Date.now() - new Date(c.last_checked_at).getTime() < 5 * 60 * 1000;
+  if (!recentlyChecked) await runMonitorSweep({ force: true, complaintId: c.id });
   res.json(await complaintDetail((await repo.getComplaint(c.id))!));
 });
 
