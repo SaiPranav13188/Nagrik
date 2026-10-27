@@ -7,6 +7,7 @@ import { runAgent, type AgentDefinition } from '../ai/runtime.js';
 import { jurisdictionAgent } from './jurisdiction.js';
 import { draftingAgent } from './drafting.js';
 import { submissionAgent } from './submission.js';
+import { safeError } from '../services/log.js';
 
 /**
  * The Coordinator decides how a freshly-analyzed complaint moves through the pipeline, calling the
@@ -38,7 +39,7 @@ export async function runSubmission(complaintId: string, citizenConfirmed = fals
       status: 'submission_failed',
       failure_reason: `[portal_error] Something went wrong while filing automatically. Your complaint text is ready to submit yourself.`,
     });
-    console.error('[submission]', complaintId, e);
+    console.error('[submission]', complaintId, safeError(e));
   }
 }
 

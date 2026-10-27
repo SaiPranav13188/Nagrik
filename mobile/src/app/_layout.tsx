@@ -1,7 +1,7 @@
 import 'react-native-url-polyfill/auto';
 import React, { useEffect, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 import { Stack, router } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -25,16 +25,32 @@ function RootNavigator() {
   const signedIn = status === 'signedIn';
   const ready = status !== 'loading' && (!signedIn || profile !== null || !!profileError);
   const complete = isProfileComplete(profile);
+  // The free server sleeps when idle and takes up to a minute to wake: say so instead of a blank splash.
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (ready) return;
+    const timer = setTimeout(() => setSlow(true), 4000);
+    return () => clearTimeout(timer);
+  }, [ready]);
 
   useEffect(() => {
-    if (ready) SplashScreen.hideAsync().catch(() => {});
-  }, [ready]);
+    if (ready || slow) SplashScreen.hideAsync().catch(() => {});
+  }, [ready, slow]);
 
   // Open the right complaint when a push notification is tapped.
   useEffect(() => {
     return onNotificationTap((id) => router.push(`/complaint/${id}`));
   }, []);
 
+  if (!ready && slow) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#0F766E', alignItems: 'center', justifyContent: 'center', padding: 32, gap: 16 }}>
+        <ActivityIndicator size="large" color="#fff" />
+        <Text variant="title" color="#fff" style={{ textAlign: 'center' }}>{t('wakingServer')}</Text>
+        <Text color="#D1FAE5" style={{ textAlign: 'center' }}>{t('wakingServerBody')}</Text>
+      </View>
+    );
+  }
   if (!ready) return <View style={{ flex: 1, backgroundColor: '#0F766E' }} />;
 
   // Signed in but the server couldn't be reached — offer a retry instead of hanging.

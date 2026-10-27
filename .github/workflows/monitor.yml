@@ -1,0 +1,42 @@
+name: Daily monitor
+
+# Free replacement for the in-process cron: Render's free server sleeps when idle, so node-cron
+# would miss the sweep. This wakes the server, checks /health, then starts the monitoring sweep.
+# The sweep only drafts escalations; nothing is emailed without the citizen's approval.
+# A failed run emails the repo owner, so this doubles as a daily uptime check.
+#
+# Needs the CRON_SECRET repo secret (same value as on Render). Render must have ENABLE_CRON=false.
+# GitHub pauses scheduled workflows after 60 days without commits; re-enable it in the Actions tab.
+
+on:
+  schedule:
+    - cron: '30 3 * * *' # 09:00 IST
+  workflow_dispatch:
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BACKEND_URL: https://nagrik-backend-uopu.onrender.com
+    steps:
+      - name: Wake the server and check health
+        run: |
+          for i in 1 2 3 4 5; do
+            if body=$(curl -fsS --max-time 90 "$BACKEND_URL/health"); then
+              echo "$body"
+              echo "$body" | grep -q '"data":"supabase"' || { echo "::error::Backend is up but not using Supabase"; exit 1; }
+              exit 0
+            fi
+            echo "Attempt $i failed; retrying in 20s"
+            sleep 20
+          done
+          echo "::error::Backend did not answer /health"
+          exit 1
+
+      - name: Start the monitoring sweep
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          test -n "$CRON_SECRET" || { echo "::error::CRON_SECRET secret is not set"; exit 1; }
+          curl -fsS --max-time 60 -X POST -H "x-cron-secret: $CRON_SECRET" -H 'content-type: application/json' -d '{}' "$BACKEND_URL/jobs/monitor-complaints"

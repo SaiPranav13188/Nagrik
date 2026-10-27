@@ -35,6 +35,8 @@ export default function ComplaintScreen() {
   const [reference, setReference] = useState('');
   const [letterOpen, setLetterOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
+  const [escOpen, setEscOpen] = useState(false);
+  const [escEdit, setEscEdit] = useState<{ subject: string; body: string } | null>(null);
 
   const q = useApi(() => api.complaint(id), { deps: [id] });
   const d = q.data;
@@ -101,7 +103,11 @@ export default function ComplaintScreen() {
   const meta = issueMeta(cmp.issue_type);
   const j = d.jurisdiction;
   const letter = cmp.draft_text ? `${cmp.draft_subject ? `Subject: ${cmp.draft_subject}\n\n` : ''}${cmp.draft_text}` : null;
-  const pendingEscalation = d.escalations.find((e) => e.delivery_status !== 'sent');
+  // Escalation email drafted by the monitoring agent: nothing is sent until the citizen approves it here.
+  const awaitingEscalation = d.escalations.find((e) => e.delivery_status === 'awaiting_approval');
+  const latestEscalation = d.escalations.find((e) => e.delivery_status !== 'awaiting_approval' && e.delivery_status !== 'cancelled');
+  const pendingEscalation = latestEscalation && ['manual_required', 'blocked_unverified', 'failed'].includes(latestEscalation.delivery_status) ? latestEscalation : undefined;
+  const escalationOffice = awaitingEscalation ? j?.escalation_chain.find((e) => e.level === awaitingEscalation.escalation_level)?.title ?? null : null;
   const lastCheck = cmp.last_checked_at ?? cmp.submitted_at;
   const nextCheckDays = lastCheck ? Math.max(0, Math.ceil(RECHECK_DAYS - (Date.now() - new Date(lastCheck).getTime()) / 86400000)) : RECHECK_DAYS;
   const portalUrl = j?.portal_url ?? null;
@@ -327,6 +333,61 @@ export default function ComplaintScreen() {
             </Card>
           )}
 
+          {isOwner && awaitingEscalation && (s === 'submitted' || s === 'escalated') && (
+            <Card style={{ gap: space(3), borderColor: c.warning, borderWidth: 1.5 }}>
+              <View style={{ flexDirection: 'row', gap: space(3) }}>
+                <IconBubble name="mail-unread" color={c.warning} bg={c.warningSoft} />
+                <View style={{ flex: 1 }}>
+                  <Text variant="heading">{t('escalationReview')}</Text>
+                  <Text variant="small" tone="muted">{t('escalationReviewBody')}</Text>
+                </View>
+              </View>
+              <View style={{ backgroundColor: c.surfaceAlt, borderRadius: radius.md, padding: space(3), gap: 2 }}>
+                <Text variant="caption" tone="muted">{t('escalationTo')}</Text>
+                {escalationOffice && <Text variant="bodyStrong">{escalationOffice}</Text>}
+                <Text variant="small" tone="soft" selectable>{awaitingEscalation.recipient}</Text>
+              </View>
+              <Text variant="bodyStrong" selectable>{awaitingEscalation.subject}</Text>
+              <Text variant="small" tone="soft" numberOfLines={escOpen ? undefined : 8} selectable>{awaitingEscalation.body}</Text>
+              <Pressable onPress={() => setEscOpen((v) => !v)} hitSlop={8}>
+                <Text variant="smallStrong" tone="primary">{escOpen ? t('showLess') : t('showMore')}</Text>
+              </Pressable>
+              <View style={{ flexDirection: 'row', gap: space(2) }}>
+                <Button
+                  title={t('cancel')}
+                  variant="ghost"
+                  size="md"
+                  style={{ flex: 1 }}
+                  loading={busy === 'escCancel'}
+                  onPress={() =>
+                    Alert.alert(t('escalationCancelTitle'), t('escalationCancelConfirm'), [
+                      { text: t('back'), style: 'cancel' },
+                      { text: t('escalationCancelTitle'), style: 'destructive', onPress: () => void act('escCancel', () => api.cancelEscalation(cmp.id, awaitingEscalation.id)) },
+                    ])
+                  }
+                />
+                <Button title={t('edit')} variant="secondary" size="md" icon="create-outline" style={{ flex: 1 }} onPress={() => setEscEdit({ subject: awaitingEscalation.subject ?? '', body: awaitingEscalation.body ?? '' })} />
+                <Button
+                  title={t('send')}
+                  size="md"
+                  icon="send"
+                  style={{ flex: 1 }}
+                  loading={busy === 'escSend'}
+                  onPress={() =>
+                    Alert.alert(t('escalationSendTitle'), t('escalationSendConfirm', { to: escalationOffice ?? awaitingEscalation.recipient ?? '' }), [
+                      { text: t('back'), style: 'cancel' },
+                      {
+                        text: t('send'),
+                        onPress: () =>
+                          void act('escSend', () => api.sendEscalation(cmp.id, awaitingEscalation.id, awaitingEscalation.subject ?? '', awaitingEscalation.body ?? ''), t('escalationSent')),
+                      },
+                    ])
+                  }
+                />
+              </View>
+            </Card>
+          )}
+
           {isOwner && pendingEscalation && s === 'escalated' && (
             <Card style={{ gap: space(3), borderColor: c.warning, borderWidth: 1.5 }}>
               <View style={{ flexDirection: 'row', gap: space(3) }}>
@@ -483,6 +544,36 @@ export default function ComplaintScreen() {
           <Text variant="small" tone="faint" style={{ textAlign: 'center' }}>#{cmp.id.slice(0, 8)} · {formatDateTime(cmp.created_at)}</Text>
         </View>
       </ScrollView>
+
+      <Sheet visible={!!escEdit} onClose={() => setEscEdit(null)}>
+        {escEdit && awaitingEscalation && (
+          <View style={{ gap: space(3) }}>
+            <Text variant="title">{t('escalationEdit')}</Text>
+            <Input label={t('subject')} value={escEdit.subject} onChangeText={(v) => setEscEdit({ ...escEdit, subject: v })} maxLength={200} />
+            <Input
+              label={t('complaintText')}
+              value={escEdit.body}
+              onChangeText={(v) => setEscEdit({ ...escEdit, body: v })}
+              multiline
+              maxLength={6000}
+              style={{ minHeight: 220, maxHeight: 320, fontSize: 15, lineHeight: 22 }}
+            />
+            <Text variant="small" tone="muted">{t('escalationEditNote')}</Text>
+            <Button
+              title={t('saveChanges')}
+              icon="checkmark"
+              loading={busy === 'escEdit'}
+              onPress={() =>
+                act('escEdit', async () => {
+                  const r = await api.editEscalation(cmp.id, awaitingEscalation.id, escEdit.subject.trim(), escEdit.body.trim());
+                  setEscEdit(null);
+                  return r;
+                })
+              }
+            />
+          </View>
+        )}
+      </Sheet>
 
       <Sheet visible={manualOpen} onClose={() => setManualOpen(false)}>
         <View style={{ gap: space(4) }}>

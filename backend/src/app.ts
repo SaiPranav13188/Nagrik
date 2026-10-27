@@ -12,12 +12,15 @@ import { uploadsDir } from './services/storage.js';
 import { queueStats } from './services/scheduler.js';
 import { browserQueueDepth } from './automation/portal.js';
 import { tracingEnabled } from './ai/tracing.js';
+import { safeError } from './services/log.js';
 
 /** The HTTP app, without listening or background jobs — server.ts starts it, tests import it. */
 export const app = express();
 app.set('trust proxy', 1);
 app.use(helmet({ contentSecurityPolicy: false, crossOriginResourcePolicy: { policy: 'cross-origin' } }));
-app.use(cors());
+// The phone app is not a browser, so CORS doesn't affect it. In production only the listed web
+// origins may call the API from a browser; none by default (the admin console is same-origin).
+app.use(cors({ origin: config.nodeEnv === 'production' ? config.corsOrigins : true }));
 // Photos arrive base64-encoded on the analyze route; everything else stays small.
 const jsonSmall = express.json({ limit: '1mb' });
 const jsonPhoto = express.json({ limit: '15mb' });
@@ -75,6 +78,6 @@ h1{font-size:22px;margin:0 0 8px}p{color:#475569;line-height:1.5;margin:8px 0}.t
 app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
 app.use((err: Error & { status?: number; code?: string }, _req: Request, res: Response, _next: NextFunction) => {
   if (err.code === 'LIMIT_FILE_SIZE' || (err as { type?: string }).type === 'entity.too.large') return res.status(413).json({ error: 'Photo is too large (max 10 MB).' });
-  console.error('[error]', err);
+  console.error('[error]', safeError(err));
   res.status(err.status ?? 500).json({ error: 'Something went wrong on our side. Please try again.' });
 });

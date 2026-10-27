@@ -38,14 +38,11 @@ services:
         value: https://cloud.langfuse.com
       - key: ALLOW_LIVE_ESCALATION_EMAILS
         value: "false"
-      # node-cron runs the daily sweep in-process. If you scale to >1 instance, set this to
-      # false and use the cron job below instead so the sweep runs exactly once.
+      # The free instance sleeps when idle, so an in-process cron would miss the daily sweep.
+      # .github/workflows/monitor.yml triggers POST /jobs/monitor-complaints daily instead
+      # (needs the CRON_SECRET repo secret, same value as here).
       - key: ENABLE_CRON
-        value: "true"
-
-  # Optional external trigger (disabled by default; enable if ENABLE_CRON=false).
-  # - type: cron
-  #   name: nagrik-monitor
-  #   runtime: docker
-  #   schedule: "30 3 * * *"   # 09:00 IST
-  #   dockerCommand: sh -c 'curl -fsS -X POST -H "x-cron-secret: $CRON_SECRET" $BACKEND_URL/jobs/monitor-complaints'
+        value: "false"
+      # Escalation emails are only sent after the citizen approves them; this caps approvals per user.
+      - key: MAX_ESCALATION_EMAILS_PER_DAY
+        value: 3

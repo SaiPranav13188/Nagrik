@@ -131,3 +131,33 @@ export function traced<M extends LanguageModel>(model: M): M {
 export async function shutdownTracing() {
   await langfuse?.shutdownAsync().catch(() => {});
 }
+
+/**
+ * Deletes a user's traces from Langfuse (account deletion): traces tagged with their user id and
+ * every trace grouped under one of their complaints. Best effort: returns how many were deleted.
+ */
+export async function deleteTraces(filters: { userId: string; complaintIds: string[] }) {
+  if (!tracingEnabled) return 0;
+  const base = config.langfuseBaseUrl.replace(/\/$/, '');
+  const headers = {
+    Authorization: `Basic ${Buffer.from(`${config.langfusePublicKey}:${config.langfuseSecretKey}`).toString('base64')}`,
+    'Content-Type': 'application/json',
+  };
+  const ids = new Set<string>();
+  const queries = [`userId=${encodeURIComponent(filters.userId)}`, ...filters.complaintIds.map((c) => `sessionId=${encodeURIComponent(c)}`)];
+  for (const q of queries) {
+    for (let page = 1; page <= 20; page++) {
+      const res = await fetch(`${base}/api/public/traces?${q}&limit=100&page=${page}`, { headers, signal: AbortSignal.timeout(15000) });
+      if (!res.ok) throw new Error(`Langfuse list traces ${res.status}`);
+      const { data } = (await res.json()) as { data: Array<{ id: string }> };
+      for (const t of data) ids.add(t.id);
+      if (data.length < 100) break;
+    }
+  }
+  const all = [...ids];
+  for (let i = 0; i < all.length; i += 100) {
+    const res = await fetch(`${base}/api/public/traces`, { method: 'DELETE', headers, body: JSON.stringify({ traceIds: all.slice(i, i + 100) }), signal: AbortSignal.timeout(15000) });
+    if (!res.ok) throw new Error(`Langfuse delete traces ${res.status}`);
+  }
+  return all.length;
+}

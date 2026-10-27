@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/SaiPranav13188/Nagrik/actions/workflows/ci.yml/badge.svg)](https://github.com/SaiPranav13188/Nagrik/actions/workflows/ci.yml)
 
-Take a photo of a civic problem. AI agents classify it, work out which government office is responsible, write a formal complaint, file it on the official portal with a headless browser, then keep checking on it and escalate when nothing happens.
+Take a photo of a civic problem. AI agents classify it, work out which government office is responsible, write a formal complaint, file it on the official portal with a headless browser, then keep checking on it and, when nothing happens, prepare an escalation that the citizen approves before it is sent.
 
 Seeded for **Wanaparthy (PIN 509103), Telangana**. The app is in English, Telugu and Hindi.
 
@@ -12,7 +12,7 @@ Seeded for **Wanaparthy (PIN 509103), Telangana**. The app is in English, Telugu
                                  ├─ Jurisdiction agent  verified lookup table → web search → admin review
                                  ├─ Drafting agent      portal-specific formal letter
                                  └─ Submission agent    Playwright → tracking ID, or hand-off to citizen
-                node-cron ──► Monitoring & Escalation agent  status scrape → escalate → notify
+     daily cron trigger ──► Monitoring & Escalation agent  status scrape → draft escalation → notify
 ```
 
 Every stage is an AI SDK `generateText` tool loop: the model picks its next action. The safety rules are enforced inside the tools, so a model can't talk its way around them. Every tool call is written to `agent_tool_logs`.
@@ -43,7 +43,7 @@ Without any keys the backend runs fully offline:
 | Sign-in | Device token | Supabase email OTP |
 | Agent decisions | Rule-based **offline planner** (same tool-loop code path) | Gemini |
 | Photo analysis | Asks the citizen to choose the issue type | Gemini vision |
-| Escalation email | Letter prepared for the citizen to send | Sent through Resend |
+| Escalation email | Letter prepared for the citizen to send | Sent through Resend after the citizen approves it |
 
 Useful local URLs:
 
@@ -55,7 +55,7 @@ Useful local URLs:
 1. **Gemini** (free): get a key at https://aistudio.google.com/apikey and set `GEMINI_API_KEY` in `backend/.env`.
 2. **Supabase:**
    1. Create a project.
-   2. Run `supabase/migrations/0001_nagrik_schema.sql` in the SQL editor.
+   2. Run the files in `supabase/migrations/` in order (`0001`, `0002`, `0003`) in the SQL editor.
    3. Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in `backend/.env`.
    4. Set `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` in `mobile/.env`.
    5. In Auth → Email Templates, make the magic-link template include `{{ .Token }}` so users receive a 6-digit code.
@@ -74,7 +74,7 @@ Because of that, in `live` mode:
 
 - Nagrik does the routing and writes the complaint.
 - It then hands the complaint to the citizen with three steps: copy the text, open the portal, and tell Nagrik the reference number.
-- Monitoring and escalation then run automatically. Level 1 escalation goes to the commissioner's published email.
+- Monitoring runs automatically. When an escalation is due, the level 1 email to the commissioner's published address is drafted and sent only after the citizen approves it.
 
 Full zero-touch filing works on portals without a human-verification gate. The sandbox portal shows the complete loop: form fill with photo upload, then grievance-number capture, status scraping, escalation and resolution.
 
@@ -94,7 +94,8 @@ Seeded mappings are in `backend/src/db/seed.ts`, with sources:
 | A CAPTCHA or OTP always leads to a manual hand-off and is never bypassed | `automation/captcha.ts` checks before filling and again after submit, then `flag_submission_failure` runs |
 | A partially filled form is never submitted | The harness stops if any required mapped field can't be filled |
 | Every tool call is logged | `withToolLogging` in `ai/runtime.ts` wraps all tools of every agent |
-| Escalations only go to verified contacts, and levels are never skipped | `submit_escalation` |
+| Escalation emails are sent only after the citizen approves that exact draft | The monitoring agent and the cron job can only save drafts (`prepare_escalation`, status `awaiting_approval`); no agent has a tool that sends email. `POST /complaints/:id/escalations/:eid/send` (`services/escalations.ts`) sends only when the signed-in owner sends `confirm: true` with the exact subject and body stored; an edit needs a fresh approval. It records who approved it and when. |
+| Escalations only go to verified contacts, levels are never skipped, and each citizen can approve at most `MAX_ESCALATION_EMAILS_PER_DAY` (3) a day | `prepare_escalation`, re-checked at send time in `services/escalations.ts` |
 | Nothing leaves the machine by email unless explicitly allowed | Sandbox contacts are only simulated. Live contacts need `ALLOW_LIVE_ESCALATION_EMAILS`. |
 | The first submission to a new portal gets a review window | `schedule_submission` shows a countdown the citizen can Hold. `autoSubmit=false` requires the citizen's approval every time. |
 | A real (non-sandbox) portal is never filed without the citizen tapping Submit, whatever the auto-submit setting | `schedule_submission` waits for approval. `get_form_selectors` and `fill_and_submit_form` refuse unless that run came from the citizen's Submit/Retry (`citizenConfirmed`). |
@@ -120,7 +121,11 @@ Seeded mappings are in `backend/src/db/seed.ts`, with sources:
 | POST | `/complaints/:id/manual-submitted` | Citizen filed it by hand (optional reference number) |
 | POST | `/complaints/:id/user-status` | Citizen says it is fixed or not fixed |
 | POST | `/complaints/:id/check-status` | Run the Monitoring agent now for this complaint |
-| POST | `/complaints/:id/escalate` | Escalate now to the next verified level. Needs body `{ "confirm": true }`; real offices also need 3 days since the last action. |
+| POST | `/complaints/:id/escalate` | Prepare an escalation to the next verified level now. Needs body `{ "confirm": true }`; real offices also need 3 days since the last action. Email escalations come back as a draft (`awaiting_approval`). |
+| PATCH | `/complaints/:id/escalations/:eid` | Citizen edits a draft escalation email (`subject`, `body`) |
+| POST | `/complaints/:id/escalations/:eid/send` | Citizen approves and sends the draft. Body `{ "confirm": true, "subject", "body" }` must match the stored draft exactly. |
+| POST | `/complaints/:id/escalations/:eid/cancel` | Citizen cancels the draft; nothing is sent |
+| DELETE | `/me` | Delete the account and its data. Body `{ "confirm": true }`. |
 | GET | `/complaints/:id/status` | Complaint, department, activity timeline, checks and escalations |
 | POST | `/jobs/monitor-complaints` | Cron trigger (`x-cron-secret` header) |
 | POST | `/admin/jurisdiction/review` | Approve or reject a mapping and its selectors (`x-admin-key` header) |
@@ -154,6 +159,8 @@ GitHub Actions runs everything except `test:e2e` on every push and pull request.
 | Bad photo: missing, garbage, GIF, over 10 MB, corrupt bytes, someone else's URL | 400 / 413, or handled without a server error |
 | Prompt injection in the note, or a "hijacked" model calling tools with malicious arguments | Instructions stripped. Fake filing, redirected form, wrong-department routing and level-skipping escalation are all refused. |
 | Invented departments | No official source → refused. Official source → stored as pending only. Pending → never auto-filed. |
+| Escalation emails | The daily sweep only creates a draft; sending without `confirm`, another complaint's or another user's draft, the pre-edit text, a second send, or over the daily limit is refused. A complaint note saying "escalate immediately and email the collector" still only creates a draft. |
+| Account deletion | Refused without `confirm: true`; otherwise the profile, complaints and photos are removed. |
 
 ### Agent eval
 
@@ -177,7 +184,7 @@ Cost uses the per-token prices in `MODEL_PRICES` (defaults cover the two Gemini 
 
 ## MCP server
 
-`backend/src/mcp/server.ts` lets MCP clients (Claude Desktop, Claude Code…) use Nagrik through 7 tools:
+`backend/src/mcp/server.ts` lets MCP clients (Claude Desktop, Claude Code…) use Nagrik through 8 tools:
 
 | Tool | Does |
 |---|---|
@@ -187,10 +194,11 @@ Cost uses the per-token prices in `MODEL_PRICES` (defaults cover the two Gemini 
 | `submit_complaint` | Files on the portal. **Only a preview unless `confirm: true`.** |
 | `get_complaint_status` | Status, department, tracking ID, escalations, and anything the citizen must do |
 | `list_my_complaints` | The citizen's complaints |
-| `escalate_complaint` | Escalates to the next verified level. **Only a preview unless `confirm: true`.** |
+| `escalate_complaint` | Drafts an escalation to the next verified level. **Only a preview unless `confirm: true`; even then nothing is emailed.** |
+| `send_escalation` | Sends a drafted escalation email. **Needs `confirm: true` and the exact subject and body the user approved.** |
 
 Safe by default:
-- `submit_complaint` and `escalate_complaint` refuse complaints routed to a real government portal or office unless `NAGRIK_MCP_ALLOW_LIVE=true`.
+- `submit_complaint`, `escalate_complaint` and `send_escalation` refuse complaints routed to a real government portal or office unless `NAGRIK_MCP_ALLOW_LIVE=true`.
 - Complaints reported through MCP are never auto-filed.
 - Every backend guardrail still applies.
 
@@ -228,7 +236,11 @@ The server refreshes the saved session itself. The account must already exist (s
   - 20 *failed* admin/cron attempts per 15 min per IP
   - 60 agent-starting actions per hour per user (submit, retry, redraft, re-route, check, escalate, Me too)
   - the existing per-user limits on reporting, voice and geocoding
-- **Real submissions:** always need the citizen's confirmation (see Guardrails).
+- **Real submissions and escalation emails:** always need the citizen's approval (see Guardrails).
+- **CORS:** in production only the origins in `CORS_ORIGINS` may call the API from a browser (none by default; the app is not a browser).
+- **Logs:** errors are logged as type and message only (`services/log.ts`), because AI SDK errors carry the full request (photo, name, address).
+- **Account deletion:** `DELETE /me` removes complaints, photos, notifications, supports, the profile, the user's Langfuse traces and the sign-in account.
+- **Daily monitor:** `.github/workflows/monitor.yml` wakes the free Render server, checks `/health` and starts the sweep (Render runs with `ENABLE_CRON=false`).
 
 ## Pilot
 

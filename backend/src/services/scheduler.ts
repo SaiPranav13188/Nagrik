@@ -4,6 +4,7 @@ import { repo } from '../db/index.js';
 import { runAgent } from '../ai/runtime.js';
 import { coordinatorAgent, runSubmission, submissionHooks } from '../agents/coordinator.js';
 import { monitorSupervisorAgent } from '../agents/monitoring.js';
+import { safeError } from './log.js';
 
 /** Minimal in-process task queue with a concurrency cap. */
 class TaskQueue {
@@ -66,7 +67,7 @@ export function startPipeline(complaintId: string, userId: string) {
     try {
       await runAgent(coordinatorAgent, { complaintId }, { complaintId, userId });
     } catch (e) {
-      console.error('[pipeline]', complaintId, e);
+      console.error('[pipeline]', complaintId, safeError(e));
       const c = await repo.getComplaint(complaintId);
       if (c && c.status === 'analyzing') {
         await repo.updateComplaint(complaintId, {
@@ -106,7 +107,7 @@ export async function recoverOnBoot() {
 export function startCron() {
   if (!config.enableCron) return;
   cron.schedule(config.monitorCron, () => {
-    runMonitorSweep().catch((e) => console.error('[cron monitor]', e));
+    runMonitorSweep().catch((e) => console.error('[cron monitor]', safeError(e)));
   }, { timezone: 'Asia/Kolkata' });
   console.log(`[cron] monitoring sweep scheduled: "${config.monitorCron}" (Asia/Kolkata)`);
 }

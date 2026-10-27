@@ -97,10 +97,16 @@ async function main() {
   const tools = new Set(logs.json.logs.map((l: any) => l.tool_name));
   check('every agent tool call logged', ['analyze_photo', 'reverse_geocode', 'save_complaint', 'lookup_jurisdiction', 'assign_jurisdiction', 'draft_complaint_text', 'save_draft', 'get_form_selectors', 'fill_and_submit_form', 'extract_confirmation_details', 'mark_submitted'].every((t) => tools.has(t)), [...tools]);
 
-  // ── Monitoring: unchanged past threshold (0 days in this test) → escalation
+  // ── Monitoring: unchanged past threshold (0 days in this test) → escalation drafted, not sent
   await call('/admin/monitor/run', { method: 'POST', headers: { 'x-admin-key': ADMIN }, body: JSON.stringify({ force: true }) });
-  const esc = (await call(`/complaints/${id}/status`, { token })).json;
-  check('escalated to level 1 (sandbox commissioner)', esc.complaint.status === 'escalated' && esc.complaint.escalation_level === 1, { status: esc.complaint.status, esc: esc.escalations[0] });
+  const drafts = (await call(`/complaints/${id}/status`, { token })).json;
+  const draft = drafts.escalations.find((e: any) => e.delivery_status === 'awaiting_approval');
+  check('escalation drafted for the citizen to approve; nothing sent yet', !!draft && drafts.complaint.escalation_level === 0, drafts.escalations[0]);
+
+  // ── The citizen approves the exact letter → sent to level 1
+  const sentRes = await call(`/complaints/${id}/escalations/${draft?.id}/send`, { token, method: 'POST', body: JSON.stringify({ confirm: true, subject: draft?.subject, body: draft?.body }) });
+  const esc = sentRes.json;
+  check('escalated to level 1 (sandbox commissioner) after approval', esc.complaint?.status === 'escalated' && esc.complaint?.escalation_level === 1, { status: esc.complaint?.status, esc: esc.escalations?.[0] });
 
   // ── Officer resolves on the portal → monitoring detects → resolved
   await call('/admin/sandbox/grievances/status', { method: 'POST', headers: { 'x-admin-key': ADMIN }, body: JSON.stringify({ no: submitted.complaint.tracking_id, status: 'Resolved', remarks: 'Pothole patched.' }) });

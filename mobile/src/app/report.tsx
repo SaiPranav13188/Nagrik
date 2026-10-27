@@ -231,6 +231,12 @@ export default function Report() {
           </Pressable>
         )}
         {!photo && <Button title={t('chooseGallery')} variant="secondary" icon="images-outline" size="md" onPress={pickPhoto} />}
+        {!photo && (
+          <View style={{ flexDirection: 'row', gap: space(2), alignItems: 'center', paddingHorizontal: space(1) }}>
+            <Ionicons name="eye-off-outline" size={16} color={c.muted} />
+            <Text variant="small" tone="muted" style={{ flex: 1 }}>{t('photoPeopleTip')}</Text>
+          </View>
+        )}
 
         {/* Location */}
         <Card style={{ gap: space(3) }}>

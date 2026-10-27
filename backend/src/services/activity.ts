@@ -154,11 +154,15 @@ export function humanizeLogs(logs: ToolLog[]): ActivityItem[] {
         title = `Drafted an escalation (level ${a.escalation_level})`;
         detail = r.to ?? null;
         break;
-      case 'submit_escalation':
+      case 'prepare_escalation':
         icon = 'trending-up';
-        title = r.sent ? 'Escalated to a senior officer' : 'Escalation letter ready for you to send';
-        detail = r.detail ?? r.portal_url ?? null;
-        tone = r.sent ? 'success' : 'warning';
+        title = r.delivery_status === 'awaiting_approval' ? 'Escalation email ready for your review' : 'Escalation letter ready for you to send';
+        detail = r.to ?? r.portal_url ?? r.error ?? null;
+        tone = 'warning';
+        break;
+      case 'remind_escalation_approval':
+        icon = 'notifications';
+        title = 'Reminded you about the escalation email';
         break;
       case 'mark_resolved':
         icon = 'trophy';

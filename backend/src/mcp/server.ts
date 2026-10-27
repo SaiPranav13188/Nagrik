@@ -9,6 +9,8 @@
  *    government portal or office unless NAGRIK_MCP_ALLOW_LIVE=true.
  *  - Confirmation by default: those two tools only act when called with confirm: true. Without it
  *    they return a preview of exactly what would be sent, and where.
+ *  - escalate_complaint only prepares the escalation email; send_escalation sends it, and only with
+ *    the exact subject and body the user approved.
  *  - Complaints it reports are never auto-filed (autoSubmit: false), whatever the profile says.
  *
  * Auth: NAGRIK_TOKEN (a Supabase access token from the app), NAGRIK_DEVICE_ID (exchanged for a
@@ -82,7 +84,7 @@ function summary(d: any) {
     escalation_level: c.escalation_level,
     needs_citizen: d.failure ? { category: d.failure.category, message: d.failure.message } : null,
     draft: c.draft_text ? { subject: c.draft_subject, text: c.draft_text } : null,
-    escalations: (d.escalations ?? []).map((e: any) => ({ level: e.escalation_level, to: e.recipient, delivery: e.delivery_status, at: e.created_at })),
+    escalations: (d.escalations ?? []).map((e: any) => ({ id: e.id, level: e.escalation_level, to: e.recipient, delivery: e.delivery_status, at: e.created_at })),
   };
 }
 
@@ -237,10 +239,10 @@ server.registerTool(
   {
     title: 'Escalate an unresolved complaint',
     description:
-      'Escalate a filed, unresolved complaint to the next level of its verified escalation chain (never skips levels, never writes to unverified contacts). Without confirm: true this only returns a preview of who it would go to. Sandbox only unless the server allows live escalation.',
+      'Prepare an escalation of a filed, unresolved complaint to the next level of its verified escalation chain (never skips levels, never writes to unverified contacts). Without confirm: true this only returns a preview of who it would go to. With confirm: true it drafts the letter; nothing is emailed until send_escalation. Sandbox only unless the server allows live escalation.',
     inputSchema: {
       complaint_id: z.string(),
-      confirm: z.boolean().default(false).describe('Must be true to actually escalate. Get the user\'s OK first.'),
+      confirm: z.boolean().default(false).describe('Must be true to draft the escalation. Get the user\'s OK first.'),
     },
     annotations: { destructiveHint: true, openWorldHint: true },
   },
@@ -256,8 +258,47 @@ server.registerTool(
       if (!confirm) {
         return ok({ preview: true, current_level: s.escalation_level, would_escalate_to: next, next: 'Show this to the user. If they agree, call escalate_complaint again with confirm: true.' });
       }
-      const after = summary(await api('POST', `/complaints/${complaint_id}/escalate`, { confirm: true }));
-      return ok({ complaint_id, status: after.status, escalation_level: after.escalation_level, latest: after.escalations[0] ?? null });
+      const after = await api('POST', `/complaints/${complaint_id}/escalate`, { confirm: true });
+      const draft = (after.escalations ?? []).find((e: any) => e.delivery_status === 'awaiting_approval');
+      if (draft) {
+        return ok({
+          complaint_id,
+          awaiting_approval: true,
+          draft_id: draft.id,
+          to: draft.recipient,
+          subject: draft.subject,
+          body: draft.body,
+          next: 'Nothing has been sent. Show the user the recipient and the full letter. Only if they approve it, call send_escalation with this draft_id, confirm: true and the exact subject and body.',
+        });
+      }
+      const s2 = summary(after);
+      return ok({ complaint_id, status: s2.status, escalation_level: s2.escalation_level, latest: s2.escalations[0] ?? null });
+    }),
+);
+
+server.registerTool(
+  'send_escalation',
+  {
+    title: 'Send an approved escalation email',
+    description:
+      'Send an escalation email that escalate_complaint drafted. Only call this after the user has read the recipient and the full letter and approved it. The subject and body must be exactly the approved text; if the draft changed, the server refuses.',
+    inputSchema: {
+      complaint_id: z.string(),
+      draft_id: z.string(),
+      subject: z.string(),
+      body: z.string(),
+      confirm: z.boolean().default(false).describe('Must be true. Means the user approved this exact letter.'),
+    },
+    annotations: { destructiveHint: true, openWorldHint: true },
+  },
+  async ({ complaint_id, draft_id, subject, body, confirm }) =>
+    guarded(async () => {
+      if (!confirm) return fail('Not sent. Show the user the letter and call again with confirm: true only if they approve it.');
+      const d = await api('GET', `/complaints/${complaint_id}/status`);
+      const blocked = liveBlock(d, 'escalate');
+      if (blocked) return fail(blocked);
+      const after = summary(await api('POST', `/complaints/${complaint_id}/escalations/${draft_id}/send`, { confirm: true, subject, body }));
+      return ok({ complaint_id, status: after.status, escalation_level: after.escalation_level, latest: after.escalations.find((e: any) => e.id === draft_id) ?? null });
     }),
 );
 

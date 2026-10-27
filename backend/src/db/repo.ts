@@ -14,6 +14,9 @@ import type {
 
 export type NewComplaint = Pick<Complaint, 'user_id'> & Partial<Omit<Complaint, 'created_at' | 'updated_at'>>;
 
+type ApprovalFields = 'subject' | 'body' | 'approved_by' | 'approved_at' | 'reminded_at';
+export type NewEscalation = Omit<Escalation, 'id' | 'created_at' | ApprovalFields> & Partial<Pick<Escalation, ApprovalFields>>;
+
 export interface JurisdictionQuery {
   city: string;
   state?: string;
@@ -56,8 +59,14 @@ export interface Repo {
   addStatusCheck(s: Omit<StatusCheck, 'id' | 'checked_at'>): Promise<StatusCheck>;
   listStatusChecks(complaintId: string): Promise<StatusCheck[]>;
 
-  addEscalation(e: Omit<Escalation, 'id' | 'created_at'>): Promise<Escalation>;
+  addEscalation(e: NewEscalation): Promise<Escalation>;
   listEscalations(complaintId: string): Promise<Escalation[]>;
+  getEscalation(id: string): Promise<Escalation | null>;
+  updateEscalation(id: string, patch: Partial<Escalation>): Promise<Escalation>;
+  /** Escalation emails this user approved since the given time (per-user daily limit). */
+  countApprovedEscalations(userId: string, sinceIso: string): Promise<number>;
+  /** Removes the profile, complaints, supports and notifications of this user (account deletion). */
+  deleteUserData(userId: string): Promise<void>;
 
   addToolLog(l: Omit<ToolLog, 'id' | 'created_at'>): Promise<void>;
   listToolLogs(opts: { complaintId?: string; limit?: number; toolName?: string }): Promise<ToolLog[]>;

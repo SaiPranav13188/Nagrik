@@ -2,7 +2,8 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { repo } from '../db/index.js';
-import { issueLocalToken, requireUser } from '../auth.js';
+import { forgetUser, issueLocalToken, requireUser } from '../auth.js';
+import { deleteAccount } from '../services/account.js';
 
 export const authRouter = Router();
 
@@ -62,4 +63,12 @@ meRouter.get('/notifications', async (req, res) => {
 meRouter.post('/notifications/read', async (req, res) => {
   await repo.markNotificationsRead(req.userId);
   res.json({ ok: true });
+});
+
+// Deletes the account and everything stored about it. Explicit confirm so a stray call can't do it.
+meRouter.delete('/', rateLimit({ windowMs: 60 * 60 * 1000, limit: 5 }), async (req, res) => {
+  if (req.body?.confirm !== true) return res.status(400).json({ error: 'Account deletion needs explicit confirmation (confirm: true).' });
+  const r = await deleteAccount(req.userId);
+  forgetUser(req.userId);
+  res.json({ deleted: true, complaints: r.complaints, photos: r.photos });
 });

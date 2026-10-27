@@ -62,7 +62,11 @@ export interface Escalation {
   channel: 'email' | 'portal' | null;
   recipient: string | null;
   draft_text: string | null;
-  delivery_status: 'sent' | 'manual_required' | 'blocked_unverified' | 'failed';
+  /** awaiting_approval: an email draft that is sent only when the citizen approves it. */
+  delivery_status: 'awaiting_approval' | 'cancelled' | 'sent' | 'manual_required' | 'blocked_unverified' | 'failed';
+  subject: string | null;
+  body: string | null;
+  approved_at: string | null;
   created_at: string;
 }
 

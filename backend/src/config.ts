@@ -54,6 +54,10 @@ export const config = {
   escalationFromEmail: process.env.ESCALATION_FROM_EMAIL || 'Nagrik <escalations@nagrik.app>',
   allowLiveEscalationEmails: bool(process.env.ALLOW_LIVE_ESCALATION_EMAILS, false),
   sandboxEscalationEmail: process.env.SANDBOX_ESCALATION_EMAIL || '',
+  maxEscalationEmailsPerDay: num(process.env.MAX_ESCALATION_EMAILS_PER_DAY, 3),
+
+  // Browser origins allowed to call the API in production (comma-separated). The app needs none.
+  corsOrigins: (process.env.CORS_ORIGINS || '').split(',').map((o) => o.trim()).filter(Boolean),
 
   // Nominatim requires an identifying User-Agent
   nominatimUserAgent: process.env.NOMINATIM_USER_AGENT || 'Nagrik-CivicComplaints/1.0 (contact: admin@nagrik.app)',

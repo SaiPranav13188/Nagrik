@@ -36,6 +36,11 @@ function verifyLocalToken(token: string): string | null {
 // ── Supabase mode: verify the user's access token with Supabase Auth ──
 const cache = new Map<string, { userId: string; email: string | null; exp: number }>();
 
+/** After account deletion: stop accepting that user's cached tokens straight away. */
+export function forgetUser(userId: string) {
+  for (const [token, v] of cache) if (v.userId === userId) cache.delete(token);
+}
+
 export async function requireUser(req: Request, res: Response, next: NextFunction) {
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
   if (!token) return res.status(401).json({ error: 'Sign in required' });

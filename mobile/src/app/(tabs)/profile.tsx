@@ -7,7 +7,7 @@ import { Sheet } from '../../components/Sheet';
 import { useToast } from '../../components/Toast';
 import { api, errorMessage } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { APP_VERSION } from '../../lib/config';
+import { APP_VERSION, PRIVACY_POLICY_URL } from '../../lib/config';
 import { normalizePhone } from '../../lib/format';
 import { LANGUAGES, useI18n } from '../../lib/i18n';
 import { enableNotifications, notificationPermission } from '../../lib/notifications';
@@ -40,6 +40,7 @@ export default function ProfileTab() {
   const [busy, setBusy] = useState(false);
   const [perm, setPerm] = useState<string>('undetermined');
   const [health, setHealth] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     notificationPermission().then(setPerm);
@@ -128,6 +129,34 @@ export default function ProfileTab() {
           ])
         }
       />
+      <Button
+        title={t('deleteAccount')}
+        variant="ghost"
+        icon="trash-outline"
+        loading={deleting}
+        onPress={() =>
+          Alert.alert(t('deleteAccount'), t('deleteAccountConfirm'), [
+            { text: t('cancel'), style: 'cancel' },
+            {
+              text: t('deleteAccountYes'),
+              style: 'destructive',
+              onPress: async () => {
+                setDeleting(true);
+                try {
+                  await api.deleteAccount();
+                  toast(t('deleteAccountDone'), 'success');
+                  await signOut();
+                } catch (e) {
+                  toast(errorMessage(e, t('offline'), t('somethingWrong')), 'error');
+                } finally {
+                  setDeleting(false);
+                }
+              },
+            },
+          ])
+        }
+      />
+      <Text variant="small" tone="faint" style={{ textAlign: 'center' }}>{t('independentApp')}</Text>
       <Text variant="small" tone="faint" style={{ textAlign: 'center' }}>{t('appName')} · {t('version', { v: APP_VERSION })}</Text>
 
       <Sheet visible={editOpen} onClose={() => setEditOpen(false)}>
@@ -166,6 +195,7 @@ export default function ProfileTab() {
         <View style={{ gap: space(3) }}>
           <Text variant="title">{sheet === 'how' ? t('howItWorks') : t('privacy')}</Text>
           <Text tone="soft">{sheet === 'how' ? t('howItWorksBody') : t('privacyBody')}</Text>
+          {sheet === 'privacy' && <Button title={t('privacyPolicy')} variant="secondary" icon="open-outline" onPress={() => Linking.openURL(PRIVACY_POLICY_URL)} />}
           <Button title={t('close')} variant="secondary" onPress={() => setSheet(null)} />
         </View>
       </Sheet>

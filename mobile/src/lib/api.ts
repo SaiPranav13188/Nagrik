@@ -134,6 +134,13 @@ export const api = {
   userStatus: (id: string, resolved: boolean, note?: string) => request<ComplaintDetail>(`/complaints/${id}/user-status`, { method: 'POST', body: { resolved, note } }),
   checkStatus: (id: string) => request<ComplaintDetail>(`/complaints/${id}/check-status`, { method: 'POST', timeoutMs: 90000 }),
   remove: (id: string) => request<void>(`/complaints/${id}`, { method: 'DELETE' }),
+  editEscalation: (id: string, eid: string, subject: string, body: string) =>
+    request<ComplaintDetail>(`/complaints/${id}/escalations/${eid}`, { method: 'PATCH', body: { subject, body } }),
+  // The citizen's approval: the server sends only if this is exactly the stored draft.
+  sendEscalation: (id: string, eid: string, subject: string, body: string) =>
+    request<ComplaintDetail>(`/complaints/${id}/escalations/${eid}/send`, { method: 'POST', body: { confirm: true, subject, body }, timeoutMs: 45000 }),
+  cancelEscalation: (id: string, eid: string) => request<ComplaintDetail>(`/complaints/${id}/escalations/${eid}/cancel`, { method: 'POST' }),
+  deleteAccount: () => request<{ deleted: boolean }>('/me', { method: 'DELETE', body: { confirm: true }, timeoutMs: 75000 }),
 };
 
 export function errorMessage(e: unknown, offlineText: string, fallback: string) {

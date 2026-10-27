@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { JurisdictionQuery, NewComplaint, Repo } from './repo.js';
+import type { JurisdictionQuery, NewComplaint, NewEscalation, Repo } from './repo.js';
 import type {
   Complaint,
   ComplaintStatus,
@@ -259,8 +259,8 @@ export class LocalRepo implements Repo {
       .sort((a, b) => b.checked_at.localeCompare(a.checked_at));
   }
 
-  async addEscalation(e: Omit<Escalation, 'id' | 'created_at'>) {
-    const row: Escalation = { ...e, id: randomUUID(), created_at: now() };
+  async addEscalation(e: NewEscalation) {
+    const row: Escalation = { subject: null, body: null, approved_by: null, approved_at: null, reminded_at: null, ...e, id: randomUUID(), created_at: now() };
     this.data.complaint_escalations.push(row);
     this.persist();
     return row;
@@ -270,6 +270,37 @@ export class LocalRepo implements Repo {
     return this.data.complaint_escalations
       .filter((e) => e.complaint_id === complaintId)
       .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  }
+
+  async getEscalation(id: string) {
+    return this.data.complaint_escalations.find((e) => e.id === id) ?? null;
+  }
+
+  async updateEscalation(id: string, patch: Partial<Escalation>) {
+    const row = this.data.complaint_escalations.find((e) => e.id === id);
+    if (!row) throw new Error(`Escalation ${id} not found`);
+    Object.assign(row, patch);
+    this.persist();
+    return row;
+  }
+
+  async countApprovedEscalations(userId: string, sinceIso: string) {
+    return this.data.complaint_escalations.filter((e) => e.approved_by === userId && !!e.approved_at && e.approved_at >= sinceIso).length;
+  }
+
+  async deleteUserData(userId: string) {
+    const ids = new Set(this.data.complaints.filter((c) => c.user_id === userId).map((c) => c.id));
+    const supported = this.data.complaint_supporters.filter((x) => x.user_id === userId).map((x) => x.complaint_id);
+    const d = this.data;
+    d.complaints = d.complaints.filter((c) => !ids.has(c.id));
+    d.complaint_status_checks = d.complaint_status_checks.filter((s) => !ids.has(s.complaint_id));
+    d.complaint_escalations = d.complaint_escalations.filter((e) => !ids.has(e.complaint_id));
+    d.agent_tool_logs = d.agent_tool_logs.filter((l) => !l.complaint_id || !ids.has(l.complaint_id));
+    d.notifications = d.notifications.filter((n) => n.user_id !== userId);
+    d.complaint_supporters = d.complaint_supporters.filter((x) => x.user_id !== userId && !ids.has(x.complaint_id));
+    d.profiles = d.profiles.filter((p) => p.id !== userId);
+    for (const id of supported) this.syncCount(id);
+    this.persist();
   }
 
   async addToolLog(l: Omit<ToolLog, 'id' | 'created_at'>) {

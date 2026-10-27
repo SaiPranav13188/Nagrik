@@ -19,6 +19,7 @@ import { notifySupporters, notifyUser } from '../services/notify.js';
 import { enqueueSubmission, holdSubmission, runMonitorSweep, startPipeline } from '../services/scheduler.js';
 import { agentActionLimiter } from '../rateLimits.js';
 import { complaintMonitorAgent } from '../agents/monitoring.js';
+import { cancelEscalationDraft, editEscalationDraft, EscalationRefused, sendApprovedEscalation } from '../services/escalations.js';
 
 export const complaintsRouter = Router();
 complaintsRouter.use(requireUser);
@@ -403,22 +404,58 @@ complaintsRouter.post('/:id/check-status', agentActionLimiter, async (req, res) 
 });
 
 // Citizen-requested escalation. Explicit confirm required; real offices also need a minimum wait so
-// officials aren't escalated to the day after filing. Verified-contact and no-level-skipping rules
-// are enforced inside submit_escalation.
+// officials aren't escalated to the day after filing. This only prepares the letter: an email is
+// sent later through /escalations/:eid/send, once the citizen approves the exact text.
 const MIN_DAYS_BEFORE_MANUAL_ESCALATION = 3;
 complaintsRouter.post('/:id/escalate', agentActionLimiter, async (req, res) => {
   const c = await ownComplaint(req, res);
   if (!c) return;
   if (req.body?.confirm !== true) return res.status(400).json({ error: 'Escalation needs explicit confirmation (confirm: true).' });
   if (!['submitted', 'escalated'].includes(c.status)) return res.status(409).json({ error: 'Only filed, unresolved complaints can be escalated.' });
+  const escalations = await repo.listEscalations(c.id);
+  // Already drafted: show the existing draft for review instead of making another.
+  if (escalations.some((e) => e.delivery_status === 'awaiting_approval')) return res.json(await complaintDetail(c));
   const j = c.jurisdiction_portal_id ? await repo.getJurisdiction(c.jurisdiction_portal_id) : null;
-  const lastAction = (await repo.listEscalations(c.id))[0]?.created_at ?? c.submitted_at;
+  const lastAction = escalations[0]?.created_at ?? c.submitted_at;
   const days = lastAction ? (Date.now() - new Date(lastAction).getTime()) / 86_400_000 : 0;
   if (!j?.is_sandbox && days < MIN_DAYS_BEFORE_MANUAL_ESCALATION) {
     return res.status(409).json({ error: `Please give the office at least ${MIN_DAYS_BEFORE_MANUAL_ESCALATION} days before escalating.` });
   }
   await runAgent(complaintMonitorAgent, { complaintId: c.id, citizenRequestedEscalation: true }, { complaintId: c.id, userId: req.userId });
   res.json(await complaintDetail((await repo.getComplaint(c.id))!));
+});
+
+// ───────────── escalation drafts: the citizen reviews, edits, sends or cancels ─────────────
+const draftBody = z.object({ subject: z.string().trim().min(3).max(200), body: z.string().trim().min(20).max(6000) });
+
+async function escalationAction(req: Request, res: Response, act: (c: Complaint, eid: string) => Promise<unknown>) {
+  const c = await ownComplaint(req, res);
+  if (!c) return;
+  try {
+    await act(c, String(req.params.eid));
+  } catch (e) {
+    if (e instanceof EscalationRefused) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
+  res.json(await complaintDetail((await repo.getComplaint(c.id))!));
+}
+
+complaintsRouter.patch('/:id/escalations/:eid', async (req, res) => {
+  const body = draftBody.safeParse(req.body);
+  if (!body.success) return res.status(400).json({ error: body.error.issues[0]?.message ?? 'Invalid letter' });
+  await escalationAction(req, res, (c, eid) => editEscalationDraft(c, eid, body.data.subject, body.data.body));
+});
+
+// The citizen's approval: confirm plus the exact subject and body they reviewed.
+complaintsRouter.post('/:id/escalations/:eid/send', agentActionLimiter, async (req, res) => {
+  if (req.body?.confirm !== true) return res.status(400).json({ error: 'Sending needs explicit confirmation (confirm: true).' });
+  const body = draftBody.safeParse(req.body);
+  if (!body.success) return res.status(400).json({ error: 'Send the subject and body you approved.' });
+  await escalationAction(req, res, (c, eid) => sendApprovedEscalation({ complaint: c, escalationId: eid, userId: req.userId, ...body.data }));
+});
+
+complaintsRouter.post('/:id/escalations/:eid/cancel', async (req, res) => {
+  await escalationAction(req, res, (c, eid) => cancelEscalationDraft(c, eid));
 });
 
 complaintsRouter.delete('/:id', async (req, res) => {

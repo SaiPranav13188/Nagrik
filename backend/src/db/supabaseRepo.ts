@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import type { JurisdictionQuery, NewComplaint, Repo } from './repo.js';
+import type { JurisdictionQuery, NewComplaint, NewEscalation, Repo } from './repo.js';
 import type {
   Complaint,
   ComplaintStatus,
@@ -184,7 +184,7 @@ export class SupabaseRepo implements Repo {
     ) as StatusCheck[];
   }
 
-  async addEscalation(e: Omit<Escalation, 'id' | 'created_at'>) {
+  async addEscalation(e: NewEscalation) {
     return must(await this.client.from('complaint_escalations').insert(e).select().single(), 'addEscalation') as Escalation;
   }
 
@@ -197,6 +197,36 @@ export class SupabaseRepo implements Repo {
         .order('created_at', { ascending: false }),
       'listEscalations',
     ) as Escalation[];
+  }
+
+  async getEscalation(id: string) {
+    return must(await this.client.from('complaint_escalations').select('*').eq('id', id).maybeSingle(), 'getEscalation') as Escalation | null;
+  }
+
+  async updateEscalation(id: string, patch: Partial<Escalation>) {
+    return must(await this.client.from('complaint_escalations').update(patch).eq('id', id).select().single(), 'updateEscalation') as Escalation;
+  }
+
+  async countApprovedEscalations(userId: string, sinceIso: string) {
+    const { count, error } = await this.client
+      .from('complaint_escalations')
+      .select('*', { count: 'exact', head: true })
+      .eq('approved_by', userId)
+      .gte('approved_at', sinceIso);
+    if (error) throw new Error(`countApprovedEscalations: ${error.message}`);
+    return count ?? 0;
+  }
+
+  async deleteUserData(userId: string) {
+    const ids = (await this.listComplaintsByUser(userId)).map((c) => c.id);
+    const supported = (await this.listSupportedComplaints(userId)).map((c) => c.id);
+    // Tool logs have no foreign key (intake logs exist before the complaint row); everything else cascades.
+    if (ids.length) must(await this.client.from('agent_tool_logs').delete().in('complaint_id', ids), 'deleteUserData logs');
+    must(await this.client.from('complaints').delete().eq('user_id', userId), 'deleteUserData complaints');
+    must(await this.client.from('complaint_supporters').delete().eq('user_id', userId), 'deleteUserData supporters');
+    must(await this.client.from('notifications').delete().eq('user_id', userId), 'deleteUserData notifications');
+    must(await this.client.from('profiles').delete().eq('id', userId), 'deleteUserData profile');
+    for (const id of supported) await this.syncCount(id);
   }
 
   async addToolLog(l: Omit<ToolLog, 'id' | 'created_at'>) {

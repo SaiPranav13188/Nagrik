@@ -79,8 +79,8 @@ async function main() {
   await repo.upsertProfile({ id: issueLocalToken(DEVICE).userId, full_name: 'MCP Tester', phone: '9876543210' });
   await client.connect(transport);
   const tools = (await client.listTools()).tools.map((t) => t.name).sort();
-  const expected = ['draft_complaint', 'escalate_complaint', 'find_jurisdiction', 'get_complaint_status', 'list_my_complaints', 'report_issue', 'submit_complaint'];
-  check('exposes exactly the 7 tools', JSON.stringify(tools) === JSON.stringify(expected), tools);
+  const expected = ['draft_complaint', 'escalate_complaint', 'find_jurisdiction', 'get_complaint_status', 'list_my_complaints', 'report_issue', 'send_escalation', 'submit_complaint'];
+  check('exposes exactly the 8 tools', JSON.stringify(tools) === JSON.stringify(expected), tools);
 
   const rep = await call('report_issue', { photo_base64: png().toString('base64'), photo_mime_type: 'image/png', address: 'RTC bus stand, Wanaparthy', note: 'big pothole near bus stand, bikes falling' });
   const id = rep.data?.complaint_id;
@@ -109,7 +109,12 @@ async function main() {
   const escPreview = await call('escalate_complaint', { complaint_id: id });
   check('escalate_complaint without confirm → preview of the next level only', escPreview.data?.preview === true && escPreview.data?.would_escalate_to?.level === 1, escPreview.data);
   const esc = await call('escalate_complaint', { complaint_id: id, confirm: true });
-  check('escalate_complaint with confirm → escalated to level 1 (sandbox inbox)', !esc.error && esc.data?.status === 'escalated' && esc.data?.escalation_level === 1, esc.data);
+  s = (await call('get_complaint_status', { complaint_id: id })).data;
+  check('escalate_complaint with confirm → draft awaiting approval, nothing sent', !esc.error && esc.data?.awaiting_approval === true && s.escalation_level === 0, esc.data);
+  const noConfirm = await call('send_escalation', { complaint_id: id, draft_id: esc.data?.draft_id, subject: esc.data?.subject, body: esc.data?.body });
+  check('send_escalation without confirm → refused', noConfirm.error === true, noConfirm.text);
+  const sent = await call('send_escalation', { complaint_id: id, draft_id: esc.data?.draft_id, subject: esc.data?.subject, body: esc.data?.body, confirm: true });
+  check('send_escalation with the approved text → escalated to level 1 (sandbox inbox)', !sent.error && sent.data?.status === 'escalated' && sent.data?.escalation_level === 1 && sent.data?.latest?.delivery === 'sent', sent.data);
 
   // A complaint routed to the REAL Wanaparthy portal: the MCP server must refuse in sandbox mode.
   const live = (await repo.findJurisdictions({ city: 'Wanaparthy', state: 'Telangana', issueType: 'garbage', sandbox: false, reviewStatuses: ['approved'] }))[0];

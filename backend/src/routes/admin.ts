@@ -7,6 +7,7 @@ import { repo } from '../db/index.js';
 import { requireAdmin, requireCron } from '../auth.js';
 import { runMonitorSweep } from '../services/scheduler.js';
 import { sandboxAdminRouter } from '../sandboxPortal/router.js';
+import { safeError } from '../services/log.js';
 
 export const adminRouter = Router();
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -139,6 +140,6 @@ jobsRouter.use(express.json());
 jobsRouter.post('/monitor-complaints', requireCron, async (req, res) => {
   const force = Boolean(req.body?.force);
   // Respond fast; the sweep continues in the background.
-  void runMonitorSweep({ force }).catch((e) => console.error('[jobs/monitor]', e));
+  void runMonitorSweep({ force }).catch((e) => console.error('[jobs/monitor]', safeError(e)));
   res.status(202).json({ started: true, force });
 });
