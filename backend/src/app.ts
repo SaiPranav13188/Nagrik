@@ -43,7 +43,7 @@ app.get('/health', async (req, res) => {
   // ?deep=1 also reads the database: the keep-awake ping uses it so Supabase sees activity and
   // doesn't pause the free project.
   let db: string | undefined;
-  if (req.query.deep) db = await repo.getJurisdiction('__ping__').then(() => 'ok', (e: Error) => `error: ${e.message}`);
+  if (req.query.deep) db = await repo.getJurisdiction('00000000-0000-0000-0000-000000000000').then(() => 'ok', (e: Error) => `error: ${e.message}`);
   res.json({
     ...(db && { db }),
     ok: true,
