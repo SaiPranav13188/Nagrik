@@ -17,6 +17,7 @@ export interface Profile {
   full_name: string | null;
   phone: string | null;
   email: string | null;
+  avatar_url: string | null;
   expo_push_token: string | null;
   preferred_language: string;
   auto_submit_default: boolean;

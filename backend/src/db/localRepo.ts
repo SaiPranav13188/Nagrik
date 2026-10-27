@@ -98,6 +98,7 @@ export class LocalRepo implements Repo {
       full_name: null,
       phone: null,
       email: null,
+      avatar_url: null,
       expo_push_token: null,
       preferred_language: 'en',
       auto_submit_default: true,

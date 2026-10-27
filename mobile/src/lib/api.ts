@@ -74,7 +74,8 @@ export const api = {
   me: () => request<{ profile: Profile }>('/me', { timeoutMs: 75000 }),
   updateMe: (patch: Partial<Pick<Profile, 'full_name' | 'phone' | 'email' | 'preferred_language' | 'auto_submit_default'>>) =>
     request<{ profile: Profile }>('/me', { method: 'PUT', body: patch }),
-  setPushToken: (token: string | null) => request('/me/push-token', { method: 'POST', body: { token } }),
+  setAvatar: (photoBase64: string) => request<{ profile: Profile }>('/me/avatar', { method: 'POST', body: { photoBase64, photoMimeType: 'image/jpeg' }, timeoutMs: 45000 }),
+  setPushToken:(token: string | null) => request('/me/push-token', { method: 'POST', body: { token } }),
   notifications: () => request<{ notifications: AppNotification[]; unread: number }>('/me/notifications'),
   markNotificationsRead: () => request('/me/notifications/read', { method: 'POST' }),
 

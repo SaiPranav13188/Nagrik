@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { repo } from '../db/index.js';
 import { forgetUser, issueLocalToken, requireUser } from '../auth.js';
 import { deleteAccount } from '../services/account.js';
+import { savePhoto } from '../services/storage.js';
 
 export const authRouter = Router();
 
@@ -45,6 +46,17 @@ meRouter.put('/', async (req, res) => {
   const body = profileBody.safeParse(req.body);
   if (!body.success) return res.status(400).json({ error: body.error.issues[0]?.message ?? 'Invalid profile' });
   const profile = await repo.upsertProfile({ id: req.userId, ...body.data });
+  res.json({ profile });
+});
+
+// Profile photo picked in the app. Stored under the user's folder, so account deletion removes it too.
+meRouter.post('/avatar', rateLimit({ windowMs: 60 * 60 * 1000, limit: 20 }), async (req, res) => {
+  const body = z.object({ photoBase64: z.string().max(1_000_000), photoMimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']).optional() }).safeParse(req.body);
+  if (!body.success) return res.status(400).json({ error: 'Invalid photo' });
+  const buf = Buffer.from(body.data.photoBase64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+  if (buf.length < 100) return res.status(400).json({ error: 'The photo could not be read. Please try again.' });
+  const avatar_url = await savePhoto(req.userId, buf, body.data.photoMimeType ?? 'image/jpeg');
+  const profile = await repo.upsertProfile({ id: req.userId, avatar_url });
   res.json({ profile });
 });
 

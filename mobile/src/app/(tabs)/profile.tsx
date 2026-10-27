@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Linking, Pressable, ScrollView, Switch, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, Switch, View } from 'react-native';
+import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, Card, Divider, Input, Text } from '../../components/ui';
@@ -9,6 +12,7 @@ import { api, errorMessage } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { APP_VERSION, PRIVACY_POLICY_URL } from '../../lib/config';
 import { normalizePhone } from '../../lib/format';
+import { readBase64 } from '../../lib/media';
 import { LANGUAGES, useI18n } from '../../lib/i18n';
 import { enableNotifications, notificationPermission } from '../../lib/notifications';
 import { radius, space, useTheme } from '../../theme';
@@ -41,6 +45,7 @@ export default function ProfileTab() {
   const [perm, setPerm] = useState<string>('undetermined');
   const [health, setHealth] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
 
   useEffect(() => {
     notificationPermission().then(setPerm);
@@ -68,16 +73,67 @@ export default function ProfileTab() {
     setBusy(false);
   };
 
-  const initials = (profile?.full_name ?? '?').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+  const uploadPhoto = async (r: ImagePicker.ImagePickerResult) => {
+    const asset = !r.canceled ? r.assets[0] : undefined;
+    if (!asset) return;
+    setPhotoBusy(true);
+    try {
+      // Square 512px JPEG keeps the upload small (≈40–80 KB).
+      const ctx = ImageManipulator.manipulate(asset.uri);
+      ctx.resize({ width: 512, height: 512 });
+      const out = await (await ctx.renderAsync()).saveAsync({ compress: 0.8, format: SaveFormat.JPEG, base64: true });
+      const base64 = out.base64 ?? (await readBase64(out.uri));
+      if (!base64) throw new Error('unreadable');
+      const r2 = await api.setAvatar(base64);
+      setProfile(r2.profile);
+      toast(t('photoUpdated'), 'success');
+    } catch (e) {
+      toast(errorMessage(e, t('offline'), t('somethingWrong')), 'error');
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
+
+  const changePhoto = () => {
+    const opts: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.85, exif: false };
+    Alert.alert(t('profilePhoto'), undefined, [
+      {
+        text: t('takePhoto'),
+        onPress: async () => {
+          const perm = await ImagePicker.requestCameraPermissionsAsync();
+          if (!perm.granted) return Alert.alert(t('takePhoto'), t('cameraDenied'), [{ text: t('cancel'), style: 'cancel' }, { text: 'Settings', onPress: () => Linking.openSettings() }]);
+          void uploadPhoto(await ImagePicker.launchCameraAsync(opts));
+        },
+      },
+      { text: t('chooseGallery'), onPress: async () => void uploadPhoto(await ImagePicker.launchImageLibraryAsync(opts)) },
+      { text: t('cancel'), style: 'cancel' },
+    ]);
+  };
+
+  const initials =(profile?.full_name ?? '?').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: c.bg }} contentContainerStyle={{ paddingTop: insets.top + space(4), padding: space(4), gap: space(4), paddingBottom: space(28) }}>
       <Text variant="display" style={{ paddingHorizontal: space(1) }}>{t('profileTitle')}</Text>
 
       <Card style={{ flexDirection: 'row', alignItems: 'center', gap: space(4) }} onPress={() => setEditOpen(true)}>
-        <View style={{ width: 60, height: 60, borderRadius: 20, backgroundColor: c.primary, alignItems: 'center', justifyContent: 'center' }}>
-          <Text variant="title" color={c.primaryInk}>{initials}</Text>
-        </View>
+        <Pressable onPress={changePhoto} disabled={photoBusy} hitSlop={6} accessibilityRole="button" accessibilityLabel={t('profilePhoto')}>
+          <View style={{ width: 60, height: 60, borderRadius: 20, backgroundColor: c.primary, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+            {profile?.avatar_url ? (
+              <Image source={{ uri: profile.avatar_url }} style={{ width: 60, height: 60 }} contentFit="cover" transition={150} />
+            ) : (
+              <Text variant="title" color={c.primaryInk}>{initials}</Text>
+            )}
+            {photoBusy && (
+              <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center' }}>
+                <ActivityIndicator color="#fff" />
+              </View>
+            )}
+          </View>
+          <View style={{ position: 'absolute', right: -4, bottom: -4, width: 24, height: 24, borderRadius: 12, backgroundColor: c.surface, borderWidth: 1.5, borderColor: c.line, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="camera" size={13} color={c.primary} />
+          </View>
+        </Pressable>
         <View style={{ flex: 1, gap: 2 }}>
           <Text variant="heading">{profile?.full_name}</Text>
           <Text tone="muted">+91 {profile?.phone}</Text>
