@@ -89,6 +89,8 @@ export interface ComplaintDetail {
     verified: boolean;
     requires_captcha: boolean;
     automated: boolean;
+    /** False when the office's portal has no status page Nagrik can read (missing on older servers). */
+    status_check_supported?: boolean;
     notes: string | null;
     escalation_chain: Array<{ level: number; title: string; channel: 'email' | 'portal'; contact: string; verified: boolean }>;
   } | null;

@@ -62,6 +62,7 @@ const CASES: Case[] = [
   { q: 'what happened to my complaints', topic: 'my_complaint', contains: ['WNP/2026/000003', 'CAPTCHA', 'Retry automatic filing'], notContains: ['Marked fixed'] },
   { q: 'నా ఫిర్యాదు స్థితి ఏమిటి?', lang: 'te', topic: 'my_complaint', contains: ['WNP/2026/000003', 'తదుపరి ఆటోమేటిక్ చెక్'] },
   { q: 'मेरी शिकायत का क्या हाल है?', lang: 'hi', topic: 'my_complaint', contains: ['WNP/2026/000003', 'अगली अपने-आप जाँच'] },
+  { q: 'status of WNP/2026/000555?', topic: 'my_complaint', contains: ["can't be checked automatically", 'Is it fixed?'], notContains: ['Next automatic check', 'test portal'] },
 
   // Keyword routing (Telugu / Hindi) answers in that language.
   { q: 'ఎస్కలేషన్ అంటే ఏమిటి?', lang: 'te', topic: 'escalation', contains: ['పంపవద్దు'] },
@@ -96,6 +97,12 @@ async function seed() {
     jurisdiction_department: 'Wanaparthy Municipality – Roads', created_at: iso(2 * day),
   } as never);
   await repo.createComplaint({ user_id: USER, issue_type: 'garbage', status: 'resolved', resolved_at: iso(20 * day), created_at: iso(30 * day) } as never);
+  // Filed by the citizen on the real (OTP-gated) portal: no status page the app can read.
+  const live = (await repo.listJurisdictions()).find((j) => !j.is_sandbox && j.city === 'Wanaparthy' && !j.status_check_url_template) ?? null;
+  await repo.createComplaint({
+    user_id: USER, issue_type: 'streetlight', status: 'submitted', tracking_id: 'WNP/2026/000555', city: 'Wanaparthy', jurisdiction_portal_id: live?.id ?? null,
+    jurisdiction_department: 'Wanaparthy Municipality – Electrical', submitted_at: iso(2 * day), created_at: iso(2 * day),
+  } as never);
   return sandbox;
 }
 

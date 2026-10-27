@@ -311,15 +311,23 @@ export default function ComplaintScreen() {
                   <Ionicons name="copy-outline" size={20} color={c.primary} />
                 </Pressable>
               )}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space(2) }}>
-                <Ionicons name="time-outline" size={16} color={c.muted} />
-                <Text variant="small" tone="muted" style={{ flex: 1 }}>{t('nextCheck', { when: nextCheckDays ? t('inDays', { n: nextCheckDays }) : t('today') })}</Text>
-                {isOwner && (
-                  <Pressable onPress={() => act('check', () => api.checkStatus(cmp.id), t('statusUpToDate'))} disabled={busy === 'check'} hitSlop={8}>
-                    <Text variant="smallStrong" tone="primary">{busy === 'check' ? t('loading') : t('checkNow')}</Text>
-                  </Pressable>
-                )}
-              </View>
+              {j?.status_check_supported === false ? (
+                // No status page to read (e.g. an OTP-gated portal): don't promise checks that can't happen.
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: space(2) }}>
+                  <Ionicons name="information-circle-outline" size={16} color={c.muted} style={{ marginTop: 2 }} />
+                  <Text variant="small" tone="muted" style={{ flex: 1 }}>{t('noStatusCheck')}</Text>
+                </View>
+              ) : (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: space(2) }}>
+                  <Ionicons name="time-outline" size={16} color={c.muted} />
+                  <Text variant="small" tone="muted" style={{ flex: 1 }}>{t('nextCheck', { when: nextCheckDays ? t('inDays', { n: nextCheckDays }) : t('today') })}</Text>
+                  {isOwner && (
+                    <Pressable onPress={() => act('check', () => api.checkStatus(cmp.id), t('statusUpToDate'))} disabled={busy === 'check'} hitSlop={8}>
+                      <Text variant="smallStrong" tone="primary">{busy === 'check' ? t('loading') : t('checkNow')}</Text>
+                    </Pressable>
+                  )}
+                </View>
+              )}
               {isOwner && askIfFixed && (
                 <>
                   <Divider />
@@ -379,7 +387,13 @@ export default function ComplaintScreen() {
                       {
                         text: t('send'),
                         onPress: () =>
-                          void act('escSend', () => api.sendEscalation(cmp.id, awaitingEscalation.id, awaitingEscalation.subject ?? '', awaitingEscalation.body ?? ''), t('escalationSent')),
+                          void act('escSend', async () => {
+                            const r = await api.sendEscalation(cmp.id, awaitingEscalation.id, awaitingEscalation.subject ?? '', awaitingEscalation.body ?? '');
+                            // The server may not be able to email this office; then the letter comes back for the citizen to send.
+                            const sent = r.escalations.find((e) => e.id === awaitingEscalation.id)?.delivery_status === 'sent';
+                            toast(sent ? t('escalationSent') : t('escalationNotSent'), sent ? 'success' : 'info');
+                            return r;
+                          }),
                       },
                     ])
                   }

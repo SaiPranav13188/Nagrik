@@ -81,6 +81,7 @@ async function complaintDetail(c: Complaint, role: 'owner' | 'supporter' = 'owne
           verified: j.review_status === 'approved',
           requires_captcha: j.requires_captcha,
           automated: !!(j.form_selectors && j.review_status === 'approved' && !j.requires_captcha),
+          status_check_supported: !!(j.status_check_url_template && j.status_check_selectors),
           notes: j.notes,
           escalation_chain: j.escalation_contact.map((e) => ({ level: e.level, title: e.title, channel: e.channel, contact: e.contact, verified: e.verified })),
         }

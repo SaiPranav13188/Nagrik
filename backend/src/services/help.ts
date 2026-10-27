@@ -72,6 +72,7 @@ const T = {
     portal: (s: string) => `Latest status on the portal: "${s}".`,
     lastCheck: (d: string) => `Last checked on ${d}.`,
     nextCheck: (d: string) => `Next automatic check: ${d}. Tap 'Check status now' to check sooner.`,
+    noCheck: `This office's portal can't be checked automatically, so the app will ask you 'Is it fixed?' and prepare an escalation letter if nothing happens.`,
     escReview: `An escalation email is waiting for your approval — open the complaint to review and send it.`,
     escManual: `An escalation letter is ready for you to send — open the complaint and tap 'Copy'.`,
     test: `This office uses the test portal during the pilot, so the real office has not received it.`,
@@ -90,6 +91,7 @@ const T = {
     portal: (s: string) => `పోర్టల్‌లో తాజా స్థితి: "${s}".`,
     lastCheck: (d: string) => `చివరిగా ${d}న చెక్ చేశాం.`,
     nextCheck: (d: string) => `తదుపరి ఆటోమేటిక్ చెక్: ${d}. ముందే చూడాలంటే 'ఇప్పుడే స్థితి చూడండి' నొక్కండి.`,
+    noCheck: `ఈ కార్యాలయ పోర్టల్‌ను ఆటోమేటిక్‌గా చెక్ చేయలేం, కాబట్టి యాప్ మిమ్మల్ని 'పరిష్కారమైందా?' అని అడుగుతుంది, ఏమీ జరగకపోతే ఎస్కలేషన్ లేఖ సిద్ధం చేస్తుంది.`,
     escReview: `ఎస్కలేషన్ ఇమెయిల్ మీ ఆమోదం కోసం ఎదురుచూస్తోంది — ఫిర్యాదును తెరిచి చూసి పంపండి.`,
     escManual: `ఎస్కలేషన్ లేఖ మీరు పంపడానికి సిద్ధంగా ఉంది — ఫిర్యాదును తెరిచి 'కాపీ' నొక్కండి.`,
     test: `పైలట్ సమయంలో ఈ కార్యాలయానికి టెస్ట్ పోర్టల్ వాడుతున్నాం, కాబట్టి అసలు కార్యాలయానికి ఇది చేరలేదు.`,
@@ -108,6 +110,7 @@ const T = {
     portal: (s: string) => `पोर्टल पर ताज़ा स्थिति: "${s}"।`,
     lastCheck: (d: string) => `आखिरी जाँच ${d} को हुई।`,
     nextCheck: (d: string) => `अगली अपने-आप जाँच: ${d}। पहले देखना हो तो 'अभी स्थिति देखें' दबाएँ।`,
+    noCheck: `इस दफ़्तर का पोर्टल अपने-आप जाँचा नहीं जा सकता, इसलिए ऐप आपसे 'क्या ठीक हो गया?' पूछेगा और कुछ न होने पर एस्केलेशन पत्र तैयार करेगा।`,
     escReview: `एक एस्केलेशन ईमेल आपकी मंज़ूरी का इंतज़ार कर रहा है — शिकायत खोलकर देखें और भेजें।`,
     escManual: `एस्केलेशन पत्र आपके भेजने के लिए तैयार है — शिकायत खोलें और 'कॉपी' दबाएँ।`,
     test: `पायलट के दौरान इस दफ़्तर के लिए टेस्ट पोर्टल इस्तेमाल हो रहा है, इसलिए असली दफ़्तर तक यह नहीं पहुँची।`,
@@ -131,9 +134,12 @@ export function describeComplaint(c: Complaint, j: Jurisdiction | null, escalati
     lines.push(t.filed(dept, fmt(c.submitted_at, lang)));
     if (c.status === 'escalated') lines.push(t.escalated(c.escalation_level));
     if (c.portal_status && !/filed by citizen/i.test(c.portal_status)) lines.push(t.portal(c.portal_status));
-    if (c.last_checked_at) lines.push(t.lastCheck(fmt(c.last_checked_at, lang)));
-    const base = c.last_checked_at ?? c.submitted_at;
-    if (base) lines.push(t.nextCheck(fmt(new Date(Math.max(now, new Date(base).getTime() + config.recheckIntervalHours * 3_600_000)).toISOString(), lang)));
+    if (j && !(j.status_check_url_template && j.status_check_selectors)) lines.push(t.noCheck);
+    else {
+      if (c.last_checked_at) lines.push(t.lastCheck(fmt(c.last_checked_at, lang)));
+      const base = c.last_checked_at ?? c.submitted_at;
+      if (base) lines.push(t.nextCheck(fmt(new Date(Math.max(now, new Date(base).getTime() + config.recheckIntervalHours * 3_600_000)).toISOString(), lang)));
+    }
     if (escalations.some((e) => e.delivery_status === 'awaiting_approval')) lines.push(t.escReview);
     else if (c.status === 'escalated' && ['manual_required', 'blocked_unverified', 'failed'].includes(escalations.find((e) => e.delivery_status !== 'cancelled')?.delivery_status ?? '')) lines.push(t.escManual);
   }

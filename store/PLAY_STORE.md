@@ -39,7 +39,7 @@ Currently available for Wanaparthy Municipality, Telangana. More towns coming.
 Nagrik is an independent app. It is not affiliated with, endorsed by or acting on behalf of any government body. Complaints are filed on official portals, including the CDMA Telangana grievance portal: https://cdma.telangana.gov.in/Grievance_Redressal
 ```
 
-While the server is in test mode, add this line at the top of the full description, and keep the in-app banner:
+Only while the server is in test mode (`PORTAL_MODE=sandbox`), add this line at the top of the full description; the in-app banner follows the server automatically:
 `TEST VERSION: complaints go to a practice portal, not to real government offices.`
 
 **App or game:** App. **Category:** Tools.
@@ -81,9 +81,10 @@ General: data is encrypted in transit: **Yes**. Users can request deletion: **Ye
 | Personal info → Email address | Yes | Yes (government office) | Required | App functionality, Account management |
 | Personal info → Phone number | Yes | Yes (government office) | Required to file | App functionality |
 | Location → Precise location | Yes | Yes (office; shown with the issue on Nearby) | Optional (can type an address) | App functionality |
-| Photos and videos → Photos | Yes | Yes (office; shown on Nearby) | Optional | App functionality |
+| Photos and videos → Photos | Yes | Yes (office; shown on Nearby). Profile photo: not shared | Optional | App functionality |
 | Audio → Voice or sound recordings | Yes, processed ephemerally | No | Optional | App functionality |
 | App activity → Other user-generated content (complaint text) | Yes | Yes (office; shown on Nearby) | Required | App functionality |
+| App activity → Other user-generated content (help questions, 👍/👎) | Yes | No | Optional | App functionality, Analytics (fixing wrong help answers) |
 | Device or other IDs (push token) | Yes | No | Optional | App functionality (notifications) |
 
 *"Shared" in Google's sense means sent to a third party that is not your service provider. Supabase, Gemini, Render, Langfuse, Resend, Expo and Firebase are service providers, so they are not "sharing".

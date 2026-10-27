@@ -1,10 +1,12 @@
 import React from 'react';
 import { Pressable, View } from 'react-native';
 import { Tabs, router } from 'expo-router';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '../../components/ui';
+import { useAuth } from '../../lib/auth';
 import { useI18n, type TKey } from '../../lib/i18n';
 import { space, useTheme } from '../../theme';
 
@@ -20,6 +22,7 @@ type BottomTabBarProps = Parameters<NonNullable<React.ComponentProps<typeof Tabs
 function TabBar({ state, navigation }: BottomTabBarProps) {
   const { c, shadow } = useTheme();
   const { t } = useI18n();
+  const { profile } = useAuth();
   const insets = useSafeAreaInsets();
   const routes = state.routes.filter((r) => TABS[r.name]);
   const renderTab = (route: (typeof state.routes)[number]) => {
@@ -37,7 +40,17 @@ function TabBar({ state, navigation }: BottomTabBarProps) {
         }}
         style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 3, paddingVertical: space(2) }}
       >
-        <Ionicons name={focused ? meta.active : meta.icon} size={24} color={focused ? c.primary : c.muted} />
+        {route.name === 'profile' && profile?.avatar_url ? (
+          // The citizen's own photo, ringed in the accent colour when the tab is active.
+          <Image
+            source={{ uri: profile.avatar_url }}
+            style={{ width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: focused ? c.primary : 'transparent' }}
+            contentFit="cover"
+            accessibilityIgnoresInvertColors
+          />
+        ) : (
+          <Ionicons name={focused ? meta.active : meta.icon} size={24} color={focused ? c.primary : c.muted} />
+        )}
         <Text variant="small" color={focused ? c.primary : c.muted} style={{ fontSize: 11 }}>{t(meta.label)}</Text>
       </Pressable>
     );

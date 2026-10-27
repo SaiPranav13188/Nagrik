@@ -11,7 +11,7 @@ import { Sheet } from '../../components/Sheet';
 import { useToast } from '../../components/Toast';
 import { api, errorMessage } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { APP_VERSION, PRIVACY_POLICY_URL } from '../../lib/config';
+import { APP_VERSION } from '../../lib/config';
 import { normalizePhone } from '../../lib/format';
 import { readBase64 } from '../../lib/media';
 import { LANGUAGES, useI18n } from '../../lib/i18n';
@@ -254,7 +254,17 @@ export default function ProfileTab() {
         <View style={{ gap: space(3) }}>
           <Text variant="title">{sheet === 'how' ? t('howItWorks') : t('privacy')}</Text>
           <Text tone="soft">{sheet === 'how' ? t('howItWorksBody') : t('privacyBody')}</Text>
-          {sheet === 'privacy' && <Button title={t('privacyPolicy')} variant="secondary" icon="open-outline" onPress={() => Linking.openURL(PRIVACY_POLICY_URL)} />}
+          {sheet === 'privacy' && (
+            <Button
+              title={t('privacyPolicy')}
+              variant="secondary"
+              icon="document-text-outline"
+              onPress={() => {
+                setSheet(null);
+                router.push('/privacy');
+              }}
+            />
+          )}
           <Button title={t('close')} variant="secondary" onPress={() => setSheet(null)} />
         </View>
       </Sheet>

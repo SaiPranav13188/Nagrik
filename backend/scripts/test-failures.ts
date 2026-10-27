@@ -311,6 +311,16 @@ async function main() {
   await runMonitorSweep({ force: true, complaintId: cA.id });
   check('a second sweep does not make another draft', (await repo.listEscalations(cA.id)).length === 1);
 
+  // A real office while live emails are off: no approve-and-send draft that can't be sent.
+  const cLive = await complaint(livePothole, { user_id: citizen, status: 'submitted', submitted_at: new Date(Date.now() - 20 * 86_400_000).toISOString(), tracking_id: 'WNP/2026/000777' });
+  await runMonitorSweep({ force: true, complaintId: cLive.id });
+  const liveEsc = await repo.listEscalations(cLive.id);
+  check(
+    'real office with live emails off → letter for the citizen to send (no unsendable draft)',
+    liveEsc.length === 1 && liveEsc[0].delivery_status === 'manual_required' && liveEsc[0].channel === 'email' && !!liveEsc[0].recipient && !!liveEsc[0].body,
+    liveEsc,
+  );
+
   check('send without confirm:true → 400', (await sendDraft(cA.id, draftA?.id, { subject: draftA?.subject, body: draftA?.body })).status === 400);
   const cB = await overdue();
   await runMonitorSweep({ force: true, complaintId: cB.id });

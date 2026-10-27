@@ -12,10 +12,12 @@
 <tr><th>Data</th><th>Why</th></tr>
 <tr><td>Email address</td><td>To sign you in with a one-time code.</td></tr>
 <tr><td>Name and mobile number</td><td>Government grievance portals require them to register a complaint. Entered by you in your profile.</td></tr>
+<tr><td>Profile photo (optional)</td><td>Shown in your own profile. It is not shown to other users or sent to government offices.</td></tr>
 <tr><td>Precise location (only while you use the app)</td><td>To find the office responsible for the place you report, and to show issues reported near you. We never collect location in the background.</td></tr>
-<tr><td>Photos you take or choose</td><td>Attached to your complaint as evidence.</td></tr>
+<tr><td>Photos you take or choose</td><td>Attached to your complaint as evidence. If you choose a photo from your gallery, the app reads the location saved in that photo (if any) on your phone, only to fill in where the problem is.</td></tr>
 <tr><td>Voice recordings (optional)</td><td>If you describe a problem by voice, the recording is turned into text. We do not keep the recording after that.</td></tr>
 <tr><td>Complaint text, status and history</td><td>To file the complaint, track it, and remind or escalate when it is not resolved.</td></tr>
+<tr><td>Help questions (optional)</td><td>If you use Help &amp; support, your questions are used to answer them, and your 👍/👎 ratings help us correct wrong answers.</td></tr>
 <tr><td>Push notification token</td><td>To tell you when a complaint's status changes.</td></tr>
 <tr><td>Basic technical logs</td><td>Errors and request logs on our server, used to fix problems.</td></tr>
 </table>
@@ -25,12 +27,12 @@
 <section>
 <h2>Who we share it with</h2>
 <ul>
-<li><strong>The government office handling your complaint.</strong> When you file a complaint, your name, mobile number, email, complaint text, photo and location are sent to that office's grievance portal. If a complaint is not resolved, an escalation letter with the same details goes to a senior office, but only after you approve it in the app.</li>
-<li><strong>Other Nagrik users nearby.</strong> The "Nearby" screen shows reported issues (photo, description, location, status and department) so neighbours can support them. Your name, mobile number and email are never shown to other users.</li>
+<li><strong>The government office handling your complaint.</strong> When you file a complaint, your name, mobile number, email, complaint text, photo and location are sent to that office's grievance portal. If a complaint is not resolved, an escalation letter with the same details goes to a senior office, but only after you approve it in the app or send it yourself.</li>
+<li><strong>Other Nagrik users nearby.</strong> The "Nearby" screen shows reported issues (photo, description, location, status and department) so neighbours can support them. Your name, mobile number, email and profile photo are never shown to other users.</li>
 <li><strong>Service providers that run the app for us:</strong>
 <ul>
 <li>Supabase: sign-in, database and photo storage. Photos are stored at unguessable web links.</li>
-<li>Google Gemini: reads your photo, text or voice to understand the problem and write the complaint.</li>
+<li>Google Gemini: reads your photo, text, voice or help question to understand it and write the complaint or answer.</li>
 <li>Render: hosts our server.</li>
 <li>Langfuse: records how the app's AI steps ran, so we can find and fix mistakes.</li>
 <li>Resend: sends escalation emails you approve.</li>
@@ -44,14 +46,14 @@ These providers may process data on servers outside India. They may use it only 
 
 <section>
 <h2>How long we keep it</h2>
-<p>We keep your account and complaints until you delete them. When you delete your account, we delete your profile, complaints, photos, notifications, "Me too" supports, AI traces and your sign-in account straight away.</p>
+<p>We keep your account and complaints until you delete them. When you delete your account, we delete your profile (including your profile photo), complaints, photos, notifications, "Me too" supports, AI traces and your sign-in account straight away.</p>
 <p>Complaints already filed with a government office stay in that office's own system, and escalation emails already sent stay with their recipients. We cannot delete those; please contact the office directly.</p>
 </section>
 
 <section>
 <h2>Your choices and rights</h2>
 <ul>
-<li>See and edit your name and mobile number in the app under <em>Profile</em>.</li>
+<li>See and edit your name, mobile number and profile photo in the app under <em>Profile</em>.</li>
 <li>Turn off location, camera, microphone or notifications at any time in your phone's settings. Some features will not work without them.</li>
 <li>Delete your account and data: in the app go to <em>Profile → Delete account</em>, or see <a href="../delete-account/">how to delete your account</a>.</li>
 <li>Ask us for a copy of your data or to correct it by emailing us.</li>

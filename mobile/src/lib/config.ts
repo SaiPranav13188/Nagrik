@@ -21,7 +21,6 @@ export const EAS_PROJECT_ID: string | undefined =
   (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId ?? Constants.easConfig?.projectId;
 export const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
 export const SUPPORT_EMAIL = 'saipranav1388@gmail.com';
-export const PRIVACY_POLICY_URL = 'https://saipranav13188.github.io/Nagrik/privacy/';
 
 /** Backends in local mode return URLs built from PUBLIC_BASE_URL (often localhost). Point them at the API host we can reach. */
 export function resolveMediaUrl(url: string | null | undefined) {

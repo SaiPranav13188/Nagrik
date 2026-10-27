@@ -198,7 +198,11 @@ ${p?.full_name ?? 'A concerned resident'}${p?.phone ? `\nMobile: ${p.phone}` : '
             await repo.updateComplaint(c.id, { status: 'escalated', escalation_level });
             return { sent: false, delivery_status: 'blocked_unverified', message: 'Contact not verified; handed to citizen.' };
           }
-          if (step.channel === 'portal') {
+          // A real office this server can't email (live emails off, or no provider): don't show the
+          // citizen an approve-and-send draft that can't be sent — hand them the letter to send from
+          // their own email app instead.
+          const cannotEmail = step.channel === 'email' && !j.is_sandbox && !(config.allowLiveEscalationEmails && config.resendApiKey);
+          if (step.channel === 'portal' || cannotEmail) {
             await repo.addEscalation({ ...base, action_taken: `Escalation letter ready for the citizen to send to ${step.title} (this office can't be reached automatically).`, delivery_status: 'manual_required' });
             await repo.updateComplaint(c.id, { status: 'escalated', escalation_level });
             return { sent: false, delivery_status: 'manual_required', portal_url: step.contact };
