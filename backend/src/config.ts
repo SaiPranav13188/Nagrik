@@ -40,6 +40,8 @@ export const config = {
   // In sandbox mode, complaints from cities without a mapping fall back to the Wanaparthy sandbox
   // portal so the full loop can be demoed from anywhere. Never applies in live mode.
   sandboxMatchAnyCity: bool(process.env.SANDBOX_MATCH_ANY_CITY, true),
+  /** Store-review test accounts (comma-separated emails): always routed to the sandbox portal. */
+  reviewEmails: (process.env.REVIEW_EMAILS ?? '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean),
   submissionGraceSeconds: num(process.env.SUBMISSION_GRACE_SECONDS, 15),
   headless: bool(process.env.PLAYWRIGHT_HEADLESS, true),
 

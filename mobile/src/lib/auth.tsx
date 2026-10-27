@@ -135,7 +135,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async (email: string, code: string) => {
       if (!supabase) throw new Error('Email sign-in is not configured');
       const { error } = await supabase.auth.verifyOtp({ email, token: code, type: 'email' });
-      if (error) throw error;
+      if (error) {
+        // Google Play's reviewers can't receive our email, so their test account has a fixed
+        // password that they type as the code. Ordinary accounts have no password, so this fails.
+        const { error: pwError } = await supabase.auth.signInWithPassword({ email, password: code });
+        if (pwError) throw error;
+      }
       setStatus('signedIn');
       const p = await refreshProfile();
       if (p && !p.email) {

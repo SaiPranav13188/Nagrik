@@ -1,0 +1,18 @@
+name: Keep awake
+
+# Render's free server sleeps after 15 minutes idle (the next request then takes ~50 s), and free
+# Supabase projects pause after a week without database activity. This pings /health?deep=1, which
+# also reads the database, about every 10 minutes. Free for public repos.
+# GitHub may delay scheduled runs, so the server can still sleep now and then.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: curl -fsS --max-time 120 --retry 2 "https://nagrik-backend-uopu.onrender.com/health?deep=1"

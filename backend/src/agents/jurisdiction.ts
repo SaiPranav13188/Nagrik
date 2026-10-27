@@ -69,7 +69,9 @@ Portal mode: ${config.portalMode}`;
           const known = inferPlace(rawCity);
           const city = known?.city ?? rawCity;
           const state = known?.state ?? rawState;
-          const sandbox = config.portalMode === 'sandbox';
+          // The Play review account's password is shared with Google, so it never files for real.
+          const reviewer = config.reviewEmails.includes((await repo.getProfile(complaint.user_id))?.email?.toLowerCase() ?? '');
+          const sandbox = config.portalMode === 'sandbox' || reviewer;
           const q = { city, state: state ?? undefined, issueType: issue_type as IssueType, sandbox };
           let approved = await repo.findJurisdictions({ ...q, reviewStatuses: ['approved'] });
           const pending = await repo.findJurisdictions({ ...q, reviewStatuses: ['pending'] });

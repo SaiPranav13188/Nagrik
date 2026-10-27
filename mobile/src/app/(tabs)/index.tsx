@@ -22,6 +22,8 @@ export default function Home() {
 
   const list = useApi(() => api.complaints().then((r) => r.complaints));
   const notes = useApi(() => api.notifications(), { pollMs: 30000 });
+  const health = useApi(() => api.health());
+  const testMode = health.data?.portal_mode === 'sandbox';
   const complaints = list.data ?? [];
   const live = complaints.some((x) => IN_PROGRESS.includes(x.status));
 
@@ -79,6 +81,13 @@ export default function Home() {
             )}
           </Pressable>
         </View>
+        {/* Store listing and testers must not think complaints reach real offices while in sandbox mode. */}
+        {testMode && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space(2), marginTop: space(3), paddingHorizontal: space(3), paddingVertical: space(2), borderRadius: radius.md, backgroundColor: 'rgba(255,255,255,0.16)' }}>
+            <Ionicons name="flask-outline" size={16} color="#fff" />
+            <Text variant="small" color="#fff" style={{ flex: 1 }}>{t('testModeBanner')}</Text>
+          </View>
+        )}
       </LinearGradient>
 
       <View style={{ paddingHorizontal: space(5), marginTop: -space(12), gap: space(5) }}>
