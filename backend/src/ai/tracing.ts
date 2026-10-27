@@ -1,13 +1,15 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { wrapLanguageModel, type LanguageModel } from 'ai';
 import type { LanguageModelV4, LanguageModelV4Middleware, LanguageModelV4Prompt } from '@ai-sdk/provider';
-import { Langfuse, type LangfuseSpanClient, type LangfuseTraceClient } from 'langfuse';
+import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
+import { LangfuseSpanProcessor } from '@langfuse/otel';
+import { LangfuseOtelSpanAttributes, setLangfuseTracerProvider, startObservation, type LangfuseAgent, type LangfuseTool } from '@langfuse/tracing';
 import { config } from '../config.js';
 
 /**
- * Langfuse tracing. One trace per top-level agent run (sessionId = complaint id, so the whole
- * pipeline of a complaint groups together). Nested agent runs, tool calls and every model call —
- * including the ones made inside tools (photo analysis, drafting, web search) — become child
+ * Langfuse tracing (OpenTelemetry). One trace per top-level agent run (sessionId = complaint id, so
+ * the whole pipeline of a complaint groups together). Nested agent runs, tool calls and every model
+ * call — including the ones made inside tools (photo analysis, drafting, web search) — become child
  * observations with timing, token usage and cost.
  *
  * Everything here is a no-op unless LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are set.
@@ -15,18 +17,32 @@ import { config } from '../config.js';
 
 export const tracingEnabled = Boolean(config.langfusePublicKey && config.langfuseSecretKey);
 
-const langfuse = tracingEnabled
-  ? new Langfuse({
-      publicKey: config.langfusePublicKey,
-      secretKey: config.langfuseSecretKey,
-      baseUrl: config.langfuseBaseUrl,
-      flushAt: 20,
-      flushInterval: 5000,
+// A private provider (not registered globally), so nothing else in the process gets traced by accident.
+const provider = tracingEnabled
+  ? new NodeTracerProvider({
+      spanProcessors: [
+        new LangfuseSpanProcessor({
+          publicKey: config.langfusePublicKey,
+          secretKey: config.langfuseSecretKey,
+          baseUrl: config.langfuseBaseUrl,
+          environment: config.nodeEnv,
+          flushAt: 20,
+          flushInterval: 5,
+        }),
+      ],
     })
   : null;
+if (provider) setLangfuseTracerProvider(provider);
 
-type Parent = LangfuseTraceClient | LangfuseSpanClient;
-const current = new AsyncLocalStorage<{ trace: LangfuseTraceClient; parent: Parent }>();
+/** The open observation that new children attach to, plus the trace-level attributes they carry. */
+const current = new AsyncLocalStorage<{ parent: LangfuseAgent | LangfuseTool; traceAttrs: Record<string, string | string[]> }>();
+
+function child<T extends 'agent' | 'tool'>(name: string, asType: T, input: unknown): T extends 'agent' ? LangfuseAgent : LangfuseTool {
+  const ctx = current.getStore()!;
+  const obs = asType === 'agent' ? ctx.parent.startObservation(name, { input }, { asType: 'agent' }) : ctx.parent.startObservation(name, { input }, { asType: 'tool' });
+  obs.otelSpan.setAttributes(ctx.traceAttrs);
+  return obs as T extends 'agent' ? LangfuseAgent : LangfuseTool;
+}
 
 /** Run an agent inside its own trace, or as a child span when called from another agent. */
 export async function traceAgentRun<T>(
@@ -35,28 +51,36 @@ export async function traceAgentRun<T>(
   fn: () => Promise<T>,
   summarize: (r: T) => unknown = (r) => r,
 ): Promise<T> {
-  if (!langfuse) return fn();
+  if (!provider) return fn();
   const outer = current.getStore();
-  const trace =
-    outer?.trace ??
-    langfuse.trace({
-      name,
-      sessionId: meta.complaintId ?? undefined,
-      userId: meta.userId ?? undefined,
-      input: meta.input,
-      tags: [config.portalMode, config.nodeEnv],
-    });
-  const span = (outer?.parent ?? trace).span({ name: `agent:${name}`, input: meta.input });
+  let span: LangfuseAgent;
+  let traceAttrs: Record<string, string | string[]>;
+  if (outer) {
+    traceAttrs = outer.traceAttrs;
+    span = child(`agent:${name}`, 'agent', meta.input);
+  } else {
+    traceAttrs = {
+      [LangfuseOtelSpanAttributes.TRACE_NAME]: name,
+      [LangfuseOtelSpanAttributes.TRACE_TAGS]: [config.portalMode, config.nodeEnv],
+      ...(meta.complaintId ? { [LangfuseOtelSpanAttributes.TRACE_SESSION_ID]: meta.complaintId } : {}),
+      ...(meta.userId ? { [LangfuseOtelSpanAttributes.TRACE_USER_ID]: meta.userId } : {}),
+    };
+    span = startObservation(`agent:${name}`, { input: meta.input }, { asType: 'agent' });
+    span.otelSpan.setAttributes(traceAttrs);
+    span.setTraceIO({ input: meta.input });
+  }
   try {
-    const r = await current.run({ trace, parent: span }, fn);
+    const r = await current.run({ parent: span, traceAttrs }, fn);
     const out = summarize(r);
-    span.end({ output: out });
-    if (!outer) trace.update({ output: out });
+    span.update({ output: out });
+    if (!outer) span.setTraceIO({ output: out });
     return r;
   } catch (e) {
-    span.end({ level: 'ERROR', statusMessage: (e as Error).message });
-    if (!outer) trace.update({ output: { error: (e as Error).message } });
+    span.update({ level: 'ERROR', statusMessage: (e as Error).message });
+    if (!outer) span.setTraceIO({ output: { error: (e as Error).message } });
     throw e;
+  } finally {
+    span.end();
   }
 }
 
@@ -64,15 +88,17 @@ export async function traceAgentRun<T>(
 export async function traceTool<T>(name: string, input: unknown, fn: () => Promise<T>): Promise<T> {
   const ctx = current.getStore();
   if (!ctx) return fn();
-  const span = ctx.parent.span({ name: `tool:${name}`, input });
+  const span = child(`tool:${name}`, 'tool', input);
   try {
-    const r = await current.run({ trace: ctx.trace, parent: span }, fn);
+    const r = await current.run({ ...ctx, parent: span }, fn);
     const err = (r as { error?: unknown } | null)?.error;
-    span.end({ output: r, ...(err ? { level: 'WARNING' as const, statusMessage: String(err) } : {}) });
+    span.update({ output: r, ...(err ? { level: 'WARNING' as const, statusMessage: String(err) } : {}) });
     return r;
   } catch (e) {
-    span.end({ level: 'ERROR', statusMessage: (e as Error).message });
+    span.update({ level: 'ERROR', statusMessage: (e as Error).message });
     throw e;
+  } finally {
+    span.end();
   }
 }
 
@@ -98,16 +124,14 @@ const middleware: LanguageModelV4Middleware = {
   async wrapGenerate({ doGenerate, params, model }) {
     const ctx = current.getStore();
     if (!ctx) return doGenerate();
-    const startTime = new Date();
-    const base = { name: `llm:${model.modelId}`, model: model.modelId, startTime, input: promptForTrace(params.prompt) };
+    const gen = ctx.parent.startObservation(`llm:${model.modelId}`, { model: model.modelId, input: promptForTrace(params.prompt) }, { asType: 'generation' });
+    gen.otelSpan.setAttributes(ctx.traceAttrs);
     try {
       const r = await doGenerate();
       const input = r.usage.inputTokens.total ?? 0;
       const output = r.usage.outputTokens.total ?? 0;
       const cost = costUsd(model.modelId, input, output);
-      ctx.parent.generation({
-        ...base,
-        endTime: new Date(),
+      gen.update({
         output: r.content,
         usageDetails: { input, output, total: input + output },
         ...(cost ? { costDetails: cost } : {}),
@@ -115,23 +139,24 @@ const middleware: LanguageModelV4Middleware = {
       });
       return r;
     } catch (e) {
-      ctx.parent.generation({ ...base, endTime: new Date(), level: 'ERROR', statusMessage: (e as Error).message });
+      gen.update({ level: 'ERROR', statusMessage: (e as Error).message });
       throw e;
+    } finally {
+      gen.end();
     }
   },
 };
 
 /** Every model the agents use goes through this, so each call shows up in the trace. */
 export function traced<M extends LanguageModel>(model: M): M {
-  if (!langfuse || typeof model === 'string') return model;
+  if (!provider || typeof model === 'string') return model;
   return wrapLanguageModel({ model: model as LanguageModelV4, middleware }) as M;
 }
 
-/** Sends every queued trace and waits for in-flight batches (flushAsync alone can drop them). */
+/** Sends every queued trace (call before the process exits). */
 export async function shutdownTracing() {
-  await langfuse?.shutdownAsync().catch(() => {});
+  await provider?.shutdown().catch(() => {});
 }
-
 /**
  * Deletes a user's traces from Langfuse (account deletion): traces tagged with their user id and
  * every trace grouped under one of their complaints. Best effort: returns how many were deleted.
@@ -143,15 +168,20 @@ export async function deleteTraces(filters: { userId: string; complaintIds: stri
     Authorization: `Basic ${Buffer.from(`${config.langfusePublicKey}:${config.langfuseSecretKey}`).toString('base64')}`,
     'Content-Type': 'application/json',
   };
+  // Langfuse's v2 API lists observations (not traces) and needs a time range; collect their trace ids.
   const ids = new Set<string>();
+  const range = `fromStartTime=2026-01-01T00:00:00Z&toStartTime=${new Date(Date.now() + 60_000).toISOString()}`;
   const queries = [`userId=${encodeURIComponent(filters.userId)}`, ...filters.complaintIds.map((c) => `sessionId=${encodeURIComponent(c)}`)];
   for (const q of queries) {
-    for (let page = 1; page <= 20; page++) {
-      const res = await fetch(`${base}/api/public/traces?${q}&limit=100&page=${page}`, { headers, signal: AbortSignal.timeout(15000) });
-      if (!res.ok) throw new Error(`Langfuse list traces ${res.status}`);
-      const { data } = (await res.json()) as { data: Array<{ id: string }> };
-      for (const t of data) ids.add(t.id);
-      if (data.length < 100) break;
+    let cursor: string | null = null;
+    for (let page = 0; page < 50; page++) {
+      const url = `${base}/api/public/v2/observations?${q}&${range}&limit=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+      const res = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
+      if (!res.ok) throw new Error(`Langfuse list observations ${res.status}`);
+      const { data, meta } = (await res.json()) as { data: Array<{ traceId: string }>; meta?: { cursor?: string | null } };
+      for (const o of data) ids.add(o.traceId);
+      cursor = meta?.cursor ?? null;
+      if (!cursor) break;
     }
   }
   const all = [...ids];

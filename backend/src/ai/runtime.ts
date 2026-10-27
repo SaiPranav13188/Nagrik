@@ -1,5 +1,5 @@
 import { google } from '@ai-sdk/google';
-import { generateText, hasToolCall, stepCountIs, type LanguageModel, type ModelMessage, type ToolSet } from 'ai';
+import { generateText, stepCountIs, type LanguageModel, type ModelMessage, type ToolSet } from 'ai';
 import { config, useGemini } from '../config.js';
 import { repo } from '../db/index.js';
 import { createOfflineModel, type OfflinePolicy } from './offlineModel.js';
@@ -179,7 +179,8 @@ async function runAgentUntraced<I>(
         system: def.system,
         ...(typeof prompt === 'string' ? { prompt } : { messages: prompt }),
         tools,
-        stopWhen: [stepCountIs(def.maxSteps ?? 10), ...(def.stopOnTools ?? []).map((t) => hasToolCall(t))],
+        // A terminal tool that a guardrail refused doesn't end the run: the agent gets the refusal and picks a safe path.
+        stopWhen: [stepCountIs(def.maxSteps ?? 10), () => record.some((r) => def.stopOnTools?.includes(r.toolName) && !(r.output as { error?: unknown } | null)?.error)],
         temperature: 0.2,
         maxRetries: 1,
       });

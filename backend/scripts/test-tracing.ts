@@ -1,6 +1,6 @@
 /**
- * Proves the Langfuse wiring without a Langfuse account: points the SDK at a local fake ingestion
- * endpoint, runs the Intake → Jurisdiction → Drafting agents (offline planner), and checks that a
+ * Proves the Langfuse wiring without a Langfuse account: points the SDK at a local fake OpenTelemetry
+ * endpoint (the one Langfuse ingests traces on), runs the Intake → Jurisdiction → Drafting agents (offline planner), and checks that a
  * trace with agent spans, tool spans and model-call generations (with token usage) arrives.
  *
  *   npm run test:tracing
@@ -11,12 +11,27 @@ import express from 'express';
 const INGEST_PORT = TEST_PORT + 5;
 Object.assign(process.env, { LANGFUSE_PUBLIC_KEY: 'pk-lf-test', LANGFUSE_SECRET_KEY: 'sk-lf-test', LANGFUSE_BASE_URL: `http://127.0.0.1:${INGEST_PORT}` });
 
-const events: Array<{ type: string; body: any }> = [];
+/** One exported (finished) span with its attributes flattened. */
+interface Span { name: string; traceId: string; spanId: string; parentSpanId?: string; start: number; end: number; attrs: Record<string, any> }
+const spans: Span[] = [];
+const value = (v: any): any => v?.stringValue ?? v?.intValue ?? v?.doubleValue ?? v?.boolValue ?? v?.arrayValue?.values?.map(value);
+const json = (v: unknown) => (typeof v === 'string' ? JSON.parse(v) : v);
 const ingest = express();
 ingest.use(express.json({ limit: '10mb' }));
-ingest.post('/api/public/ingestion', (req, res) => {
-  events.push(...(req.body.batch ?? []));
-  res.status(207).json({ successes: (req.body.batch ?? []).map((e: any) => ({ id: e.id, status: 201 })), errors: [] });
+ingest.post('/api/public/otel/v1/traces', (req, res) => {
+  for (const rs of req.body.resourceSpans ?? [])
+    for (const ss of rs.scopeSpans ?? [])
+      for (const sp of ss.spans ?? [])
+        spans.push({
+          name: sp.name,
+          traceId: sp.traceId,
+          spanId: sp.spanId,
+          parentSpanId: sp.parentSpanId || undefined,
+          start: Number(sp.startTimeUnixNano),
+          end: Number(sp.endTimeUnixNano),
+          attrs: Object.fromEntries((sp.attributes ?? []).map((a: any) => [a.key, value(a.value)])),
+        });
+  res.json({});
 });
 const ingestServer = ingest.listen(INGEST_PORT);
 
@@ -47,16 +62,17 @@ try {
   await runAgent(jurisdictionAgent, { complaint: (await repo.getComplaint(id))! }, { complaintId: id, userId });
   await shutdownTracing();
 
-  const traces = events.filter((e) => e.type === 'trace-create');
-  const spans = events.filter((e) => e.type === 'span-create').map((e) => e.body.name as string);
-  const gens = events.filter((e) => e.type === 'generation-create');
-  check('one trace per top-level agent run, grouped by complaint (sessionId)', traces.length >= 2 && traces.every((t) => !t.body.sessionId || t.body.sessionId === id), traces.map((t) => t.body));
-  check('agent spans recorded', spans.includes('agent:intake_agent') && spans.includes('agent:jurisdiction_agent'), spans);
-  check('every tool call is a span', ['tool:analyze_photo', 'tool:save_complaint', 'tool:lookup_jurisdiction', 'tool:assign_jurisdiction'].every((s) => spans.includes(s)), spans);
-  check('model calls recorded as generations with token usage', gens.length >= 4 && gens.every((g) => g.body.usageDetails && typeof g.body.usageDetails.input === 'number'), gens[0]?.body);
-  check('generations carry model name and timing', gens.every((g) => g.body.model && g.body.startTime && g.body.endTime), gens[0]?.body);
-  const ends = events.filter((e) => e.type === 'span-update');
-  check('spans are closed with output (duration measurable)', ends.length >= spans.length, { creates: spans.length, updates: ends.length });
+  const type = (s: Span) => s.attrs['langfuse.observation.type'];
+  const roots = spans.filter((s) => !s.parentSpanId);
+  const names = spans.map((s) => s.name);
+  const gens = spans.filter((s) => type(s) === 'generation');
+  check('one trace per top-level agent run, grouped by complaint (sessionId)', roots.length === 2 && new Set(roots.map((r) => r.traceId)).size === 2 && roots.every((r) => r.attrs['session.id'] === id && r.attrs['user.id'] === userId), roots.map((r) => r.attrs));
+  check('agent spans recorded', names.includes('agent:intake_agent') && names.includes('agent:jurisdiction_agent') && roots.every((r) => type(r) === 'agent'), names);
+  check('every tool call is a span', ['tool:analyze_photo', 'tool:save_complaint', 'tool:lookup_jurisdiction', 'tool:assign_jurisdiction'].every((n) => spans.some((s) => s.name === n && type(s) === 'tool')), names);
+  check('tool spans sit inside their agent trace', spans.filter((s) => type(s) === 'tool').every((s) => !!s.parentSpanId && roots.some((r) => r.traceId === s.traceId)));
+  check('model calls recorded as generations with token usage', gens.length >= 4 && gens.every((g) => typeof json(g.attrs['langfuse.observation.usage_details'])?.input === 'number'), gens[0]?.attrs);
+  check('generations carry model name and timing', gens.every((g) => g.attrs['langfuse.observation.model.name'] && g.end > g.start), gens[0]);
+  check('spans are closed with output (duration measurable)', spans.filter((s) => type(s) !== 'generation').every((s) => s.end >= s.start && s.attrs['langfuse.observation.output'] !== undefined), spans.find((s) => s.attrs['langfuse.observation.output'] === undefined));
 } catch (e) {
   console.error(e);
   failures++;

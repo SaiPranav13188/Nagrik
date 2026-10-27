@@ -38,6 +38,7 @@ Every failure hands the complaint back to the citizen with the drafted text and 
   buildTools(_ctx, { complaintId, citizenConfirmed = false }) {
     // Set only by a real successful form submission in this run; mark_submitted requires it.
     let submittedThisRun = false;
+    const scrapedTrackingIds = new Set<string>();
     return {
       get_form_selectors: tool({
         description: "Load the reviewed Playwright field mapping for the complaint's portal, plus readiness checks.",
@@ -117,7 +118,9 @@ Every failure hands the complaint back to the citizen with the drafted text and 
         execute: async ({ snapshot_id }) => {
           const c = (await repo.getComplaint(complaintId))!;
           const j = c.jurisdiction_portal_id ? await repo.getJurisdiction(c.jurisdiction_portal_id) : null;
-          return extractConfirmationDetails(snapshot_id, j?.form_selectors?.confirmation);
+          const details = extractConfirmationDetails(snapshot_id, j?.form_selectors?.confirmation);
+          if (details.trackingId) scrapedTrackingIds.add(details.trackingId);
+          return details;
         },
       }),
 
@@ -128,6 +131,10 @@ Every failure hands the complaint back to the citizen with the drafted text and 
           // Guardrail: only a form that was actually submitted in this run can be recorded as filed.
           if (!submittedThisRun || complaint_id !== complaintId) {
             return { error: 'Refused: no successful portal submission in this run. Call flag_submission_failure instead.' };
+          }
+          // Guardrail against invented reference numbers: only one scraped from the confirmation page counts.
+          if (tracking_id && !scrapedTrackingIds.has(tracking_id)) {
+            return { error: 'Refused: that tracking ID was not found on the confirmation page. Pass the trackingId from extract_confirmation_details, or null.' };
           }
           const c = await repo.updateComplaint(complaint_id, {
             status: 'submitted',

@@ -32,6 +32,9 @@ import { config, productionSecretProblems } from '../src/config.js';
 import { runMonitorSweep } from '../src/services/scheduler.js';
 import { uploadsDir } from '../src/services/storage.js';
 import { cleanCitizenText } from '../src/services/citizenText.js';
+import { inventedDetails } from '../src/services/factCheck.js';
+import { complaintFacts, draftingAgent, templateDraft } from '../src/agents/drafting.js';
+import { intakeAgent } from '../src/agents/intake.js';
 
 let failures = 0;
 const check = (name: string, ok: boolean, detail?: unknown) => {
@@ -371,6 +374,56 @@ async function main() {
   await runSubmission(cGadwal.id, true);
   c = await get(cGadwal.id);
   check('unreviewed (pending) department → never auto-submitted [unverified_portal]', c.status === 'submission_failed' && category(c) === 'unverified_portal', c.failure_reason);
+
+  // ───────────────────────────── hallucinated details ─────────────────────────────
+  section('Hallucinated details');
+  const cFacts = await complaint(sandboxPothole, { latitude: 16.362, longitude: 78.0618 });
+  const profile = await repo.getProfile(userId);
+  const facts = complaintFacts(cFacts, sandboxPothole, profile);
+  check('template letter passes the fact check (no false alarms)', inventedDetails(templateDraft(cFacts, sandboxPothole, profile).body, facts).length === 0, inventedDetails(templateDraft(cFacts, sandboxPothole, profile).body, facts));
+  check('real phone written as +91 98765 43210 → accepted', inventedDetails('Mobile: +91 98765 43210', facts).length === 0);
+  const invented = inventedDetails('Call the AE on 9123456780 or ae.roads@wanaparthy.gov.in, see https://wanaparthy.gov.in/roads. Pincode 509001. Reported in March 2024.', facts);
+  check('invented phone, email, link, pincode and year → all flagged', invented.length === 5, invented);
+
+  const cDraft = await complaint(sandboxPothole, { status: 'analyzing', draft_subject: null, draft_text: null });
+  const lying = 'To\nThe Engineering Section\n\nA deep pothole near the bus stand has injured 3 people. Contact the ward member on 9123456780 for details. Please repair it urgently.';
+  const drafted = await runAgent(hijacked(draftingAgent, once('save_draft', { complaint_id: cDraft.id, subject: 'Pothole', draft_text: lying })), { complaintId: cDraft.id }, { complaintId: cDraft.id });
+  c = await get(cDraft.id);
+  check('letter with a made-up phone number → replaced by the template letter', !c.draft_text?.includes('9123456780') && c.draft_text?.includes(cFacts.description!) === true && (drafted.toolCalls[0]?.output as any)?.replaced_with_template, { draft: c.draft_text, out: drafted.toolCalls[0]?.output });
+
+  const cTrack = await complaint(sandboxPothole);
+  const fakeTracking: OfflinePolicy = (s) =>
+    !s.called('fill_and_submit_form')
+      ? { tool: 'fill_and_submit_form', input: { complaint_id: cTrack.id, portal_url: sandboxPothole.portal_url } }
+      : !s.called('mark_submitted')
+        ? { tool: 'mark_submitted', input: { complaint_id: cTrack.id, tracking_id: 'WNP/2026/123456' } }
+        : { text: 'done' };
+  const tracked = await runAgent(hijacked(submissionAgent, fakeTracking), { complaintId: cTrack.id, citizenConfirmed: true }, { complaintId: cTrack.id });
+  c = await get(cTrack.id);
+  check('form submitted but the model invents a tracking ID → refused, not stored', c.tracking_id !== 'WNP/2026/123456' && !!(tracked.toolCalls.find((t) => t.toolName === 'mark_submitted')?.output as any)?.error, { tracking: c.tracking_id, calls: tracked.toolCalls.map((t) => t.toolName) });
+
+  const civicReject: OfflinePolicy = (s) =>
+    !s.called('analyze_photo')
+      ? { tool: 'analyze_photo', input: {} }
+      : !s.called('reject_photo')
+        ? { tool: 'reject_photo', input: { reason: 'Not a civic issue.' } }
+        : !s.called('ask_user_clarification')
+          ? { tool: 'ask_user_clarification', input: { question: 'What is the problem?', options: [{ issue_type: 'pothole', label: 'Pothole' }, { issue_type: 'other', label: 'Other' }] } }
+          : { text: 'done' };
+  const intake = await runAgent(
+    hijacked(intakeAgent, civicReject),
+    { intakeId: randomUUID(), userId, photoUrl: null, latitude: null, longitude: null, manualAddress: 'Wanaparthy', userNote: 'big pothole on main road', clarificationAnswer: null, autoSubmit: false, forceNew: false },
+  );
+  const rejectOut = intake.toolCalls.find((t) => t.toolName === 'reject_photo')?.output as any;
+  check('rejecting a report its own analysis called civic → refused, and the agent goes on to ask the citizen', !!rejectOut?.error && intake.toolCalls.some((t) => t.toolName === 'ask_user_clarification'), intake.toolCalls.map((t) => t.toolName));
+
+  const cEsc = await complaint(sandboxPothole, { status: 'submitted', submitted_at: new Date(Date.now() - 20 * 86_400_000).toISOString(), tracking_id: 'WNP/2026/000999' });
+  const madeUp = await runAgent(
+    hijacked(complaintMonitorAgent, once('prepare_escalation', { complaint_id: cEsc.id, escalation_level: 1, subject: 'Escalation', body: 'Please act. You may also reach the MLA at mla.office@example.com or 9000012345.' })),
+    { complaintId: cEsc.id },
+    { complaintId: cEsc.id },
+  );
+  check('escalation letter with an invented email and phone → refused, no draft saved', !!(madeUp.toolCalls[0]?.output as any)?.error && (await repo.listEscalations(cEsc.id)).length === 0, madeUp.toolCalls[0]);
 
   // ───────────────────────────── security basics ─────────────────────────────
   section('Security basics');

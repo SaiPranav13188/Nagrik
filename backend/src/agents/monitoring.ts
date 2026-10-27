@@ -2,11 +2,20 @@ import { generateText, Output, tool } from 'ai';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { repo } from '../db/index.js';
-import type { Complaint } from '../db/types.js';
+import type { Complaint, Jurisdiction, Profile } from '../db/types.js';
 import { scrapeStatus } from '../automation/portal.js';
 import { notifySupporters, notifyUser } from '../services/notify.js';
 import { noteGeminiError, runAgent, textModel, type AgentDefinition } from '../ai/runtime.js';
 import { ISSUE_LABELS } from './intake.js';
+import { complaintFacts } from './drafting.js';
+import { inventedDetails } from '../services/factCheck.js';
+
+/** Everything an escalation letter may state, for the hallucination check. */
+function escalationFacts(c: Complaint, j: Jurisdiction | null, p: Profile | null, step: { title: string; contact: string }) {
+  return [complaintFacts(c, j, p), c.tracking_id, c.submitted_at, c.draft_subject, c.draft_text, c.jurisdiction_department, c.portal_status, step.title, step.contact, new Date().toISOString()]
+    .filter(Boolean)
+    .join('\n');
+}
 
 const DAY = 24 * 60 * 60 * 1000;
 const daysSince = (iso: string | null) => (iso ? (Date.now() - new Date(iso).getTime()) / DAY : 0);
@@ -133,7 +142,10 @@ Include: reference number, dates, that the issue remains unresolved, a specific 
 Original complaint:
 ${c.draft_text}`,
             });
-            return { ...output, to: step.title, channel: step.channel };
+            // Guardrail: a letter with made-up contact details, links or numbers falls back to the template.
+            if (!inventedDetails(`${output.subject}\n${output.body}`, escalationFacts(c, j, p, step)).length) {
+              return { ...output, to: step.title, channel: step.channel };
+            }
             } catch (e) {
               noteGeminiError(e); // fall through to the template letter
             }
@@ -170,6 +182,10 @@ ${p?.full_name ?? 'A concerned resident'}${p?.phone ? `\nMobile: ${p.phone}` : '
           const j = c.jurisdiction_portal_id ? await repo.getJurisdiction(c.jurisdiction_portal_id) : null;
           const step = j?.escalation_contact.find((e) => e.level === escalation_level);
           if (!j || !step) return { error: 'No such escalation level.' };
+          const invented = inventedDetails(`${subject}\n${body}`, escalationFacts(c, j, await repo.getProfile(c.user_id), step));
+          if (invented.length) {
+            return { error: `Refused: the letter contains details that are not in the complaint (${invented.join(', ')}). Use the letter from draft_escalation unchanged.` };
+          }
           if (escalation_level > c.escalation_level + 1) return { error: `Cannot skip levels (current level ${c.escalation_level}).` };
           if ((await repo.listEscalations(c.id)).some((e) => e.delivery_status === 'awaiting_approval')) {
             return { error: 'An escalation is already waiting for the citizen to approve it.' };
