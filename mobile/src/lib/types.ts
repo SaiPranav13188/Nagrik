@@ -92,7 +92,7 @@ export interface ComplaintDetail {
     /** False when the office's portal has no status page Nagrik can read (missing on older servers). */
     status_check_supported?: boolean;
     notes: string | null;
-    escalation_chain: Array<{ level: number; title: string; channel: 'email' | 'portal'; contact: string; verified: boolean }>;
+    escalation_chain: { level: number; title: string; channel: 'email' | 'portal'; contact: string; verified: boolean }[];
   } | null;
   status_checks: StatusCheck[];
   escalations: Escalation[];
@@ -134,7 +134,7 @@ export interface AppNotification {
 
 export type AnalyzeResult =
   | { result: 'created'; complaint: Complaint }
-  | { result: 'clarification'; intakeId: string; photoUrl: string; question: string; options: Array<{ issue_type: IssueType; label: string }> }
+  | { result: 'clarification'; intakeId: string; photoUrl: string; question: string; options: { issue_type: IssueType; label: string }[] }
   | { result: 'rejected'; intakeId: string; photoUrl: string; reason: string }
   | { result: 'duplicate'; intakeId: string; photoUrl: string; reason: string; existing: NearbyItem };
 

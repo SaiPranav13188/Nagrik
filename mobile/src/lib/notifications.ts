@@ -19,6 +19,8 @@ function load(): NotificationsModule | null {
   if (mod !== undefined) return mod;
   if (!pushSupported) return (mod = null);
   try {
+    // Lazy: expo-notifications throws on import where push isn't supported (e.g. Expo Go).
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     mod = require('expo-notifications') as NotificationsModule;
     mod.setNotificationHandler({
       handleNotification: async () => ({

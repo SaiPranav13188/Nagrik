@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 
@@ -12,7 +12,10 @@ export function useApi<T>(fetcher: () => Promise<T>, opts: { pollMs?: number | n
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const fetcherRef = useRef(fetcher);
-  fetcherRef.current = fetcher;
+  // Always call the latest fetcher; updated after render, before the load effects below run.
+  useLayoutEffect(() => {
+    fetcherRef.current = fetcher;
+  });
   const mounted = useRef(true);
 
   const load = useCallback(async (mode: 'initial' | 'refresh' | 'silent' = 'silent') => {
@@ -39,7 +42,8 @@ export function useApi<T>(fetcher: () => Promise<T>, opts: { pollMs?: number | n
     };
   }, []);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Initial fetch: load() only sets state after its request resolves.
+  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
   useEffect(() => void load('initial'), opts.deps ?? []);
 
   useFocusEffect(

@@ -102,17 +102,19 @@ window.render=function(d){layer.clearLayers();last=d.pins;d.pins.forEach(functio
 };
 </script></body></html>`,
     // Rebuild only when the centre or theme changes; pins are pushed with injectJavaScript.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
     [center.latitude, center.longitude, dark, radiusM],
   );
 
   useEffect(() => {
     run(`window.render(${payload})`);
-  }, [payload]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [payload]);
 
   if (Platform.OS === 'web') {
     return <View style={{ flex: 1 }} />;
   }
+  // Loaded lazily so the web build never imports the native WebView.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { WebView } = require('react-native-webview') as typeof import('react-native-webview');
   return (
     <View style={{ flex: 1, backgroundColor: c.surfaceAlt }}>

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -219,7 +219,7 @@ export function SectionTitle({ title, action, onAction }: { title: string; actio
 
 export function Skeleton({ height = 16, width = '100%', style }: { height?: number; width?: number | `${number}%`; style?: StyleProp<ViewStyle> }) {
   const { c } = useTheme();
-  const v = useRef(new Animated.Value(0.5)).current;
+  const v = useState(() => new Animated.Value(0.5))[0];
   useEffect(() => {
     const loop = Animated.loop(Animated.sequence([Animated.timing(v, { toValue: 1, duration: 700, useNativeDriver: true }), Animated.timing(v, { toValue: 0.5, duration: 700, useNativeDriver: true })]));
     loop.start();
@@ -243,7 +243,7 @@ export function EmptyState({ icon, title, body, children }: { icon: IconName; ti
 }
 
 export function PulseDot({ color, size = 10 }: { color: string; size?: number }) {
-  const v = useRef(new Animated.Value(0)).current;
+  const v = useState(() => new Animated.Value(0))[0];
   useEffect(() => {
     const loop = Animated.loop(Animated.timing(v, { toValue: 1, duration: 1400, useNativeDriver: true }));
     loop.start();

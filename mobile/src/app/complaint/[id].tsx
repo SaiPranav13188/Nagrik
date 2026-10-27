@@ -47,12 +47,13 @@ export default function ComplaintScreen() {
     return () => clearInterval(iv);
   }, [fast]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Server-time aligned countdown for the non-blocking review window.
-  const skew = useMemo(() => (d ? new Date(d.server_time).getTime() - Date.now() : 0), [d?.server_time]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [now, setNow] = useState(Date.now());
+  // Server-time aligned countdown for the non-blocking review window. The skew is a deliberate
+  // snapshot of the clock when this response arrived.
+  const skew = useMemo(() => (d ? new Date(d.server_time).getTime() - Date.now() : 0), [d?.server_time]); // eslint-disable-line react-hooks/exhaustive-deps, react-hooks/purity
+  // The clock the screen renders with: fast during the countdown, once a minute otherwise.
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (!d?.complaint.submit_after) return;
-    const iv = setInterval(() => setNow(Date.now()), 250);
+    const iv = setInterval(() => setNow(Date.now()), d?.complaint.submit_after ? 250 : 60_000);
     return () => clearInterval(iv);
   }, [d?.complaint.submit_after]);
   const secondsLeft = d?.complaint.submit_after ? Math.max(0, Math.ceil((new Date(d.complaint.submit_after).getTime() - (now + skew)) / 1000)) : null;
@@ -109,13 +110,13 @@ export default function ComplaintScreen() {
   const pendingEscalation = latestEscalation && ['manual_required', 'blocked_unverified', 'failed'].includes(latestEscalation.delivery_status) ? latestEscalation : undefined;
   const escalationOffice = awaitingEscalation ? j?.escalation_chain.find((e) => e.level === awaitingEscalation.escalation_level)?.title ?? null : null;
   const lastCheck = cmp.last_checked_at ?? cmp.submitted_at;
-  const nextCheckDays = lastCheck ? Math.max(0, Math.ceil(RECHECK_DAYS - (Date.now() - new Date(lastCheck).getTime()) / 86400000)) : RECHECK_DAYS;
+  const nextCheckDays = lastCheck ? Math.max(0, Math.ceil(RECHECK_DAYS - (now - new Date(lastCheck).getTime()) / 86400000)) : RECHECK_DAYS;
   const portalUrl = j?.portal_url ?? null;
   const isOwner = d.viewer_role !== 'supporter';
   const electrical = cmp.issue_type === 'streetlight' && /wire|live|shock|current|spark/i.test(`${cmp.description} ${cmp.user_note ?? ''}`);
   const showEmergency = cmp.severity === 'high' && cmp.status !== 'resolved';
   // Asking right after filing is noise; ask once the department has had a day, or after an escalation.
-  const askIfFixed = s === 'escalated' || (!!cmp.submitted_at && Date.now() - new Date(cmp.submitted_at).getTime() > 86400000);
+  const askIfFixed = s === 'escalated' || (!!cmp.submitted_at && now - new Date(cmp.submitted_at).getTime() > 86400000);
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>

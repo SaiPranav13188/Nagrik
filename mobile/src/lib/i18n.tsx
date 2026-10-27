@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getLocales } from 'expo-localization';
 
 export type Lang = 'en' | 'te' | 'hi';
-export const LANGUAGES: Array<{ code: Lang; label: string; native: string }> = [
+export const LANGUAGES: { code: Lang; label: string; native: string }[] = [
   { code: 'en', label: 'English', native: 'English' },
   { code: 'te', label: 'Telugu', native: 'తెలుగు' },
   { code: 'hi', label: 'Hindi', native: 'हिन्दी' },

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Animated, Easing, Linking, Platform, Pressable, View } from 'react-native';
+import { Alert, Animated, Easing, Linking, Pressable, View } from 'react-native';
 import { KeyboardAvoidingView, KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
@@ -84,7 +84,7 @@ export default function Report() {
   const [manualAddress, setManualAddress] = useState('');
   const [note, setNote] = useState('');
   const [phase, setPhase] = useState<'compose' | 'analyzing'>('compose');
-  const [clarify, setClarify] = useState<{ intakeId: string; photoUrl: string; question: string; options: Array<{ issue_type: IssueType; label: string }> } | null>(null);
+  const [clarify, setClarify] = useState<{ intakeId: string; photoUrl: string; question: string; options: { issue_type: IssueType; label: string }[] } | null>(null);
   const [rejected, setRejected] = useState<string | null>(null);
   const [dup, setDup] = useState<{ intakeId: string; photoUrl: string; reason: string; existing: NearbyItem } | null>(null);
   const [joining, setJoining] = useState(false);
@@ -413,11 +413,10 @@ export default function Report() {
 }
 
 function Analyzing({ photo }: { photo: string | null }) {
-  const { c } = useTheme();
   const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const [step, setStep] = useState(0);
-  const scan = useRef(new Animated.Value(0)).current;
+  const scan = useState(() => new Animated.Value(0))[0];
 
   useEffect(() => {
     const id = setInterval(() => setStep((s) => Math.min(s + 1, ANALYZE_STEPS.length - 1)), 2600);

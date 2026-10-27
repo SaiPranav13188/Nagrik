@@ -63,6 +63,8 @@ export default function Nearby() {
   }, [load]);
 
   useEffect(() => {
+    // Fetching on mount: every state update inside locate() happens after an await.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void locate();
   }, [locate]);
 
@@ -123,11 +125,6 @@ export default function Nearby() {
     </Pressable>
   );
 
-  const mapButton = (icon: React.ComponentProps<typeof Ionicons>['name'], label: string, onPress: () => void) => (
-    <Pressable onPress={onPress} hitSlop={6} accessibilityLabel={label} style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, alignItems: 'center', justifyContent: 'center', elevation: 3, shadowColor: c.shadow, shadowOpacity: 0.15, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } }}>
-      <Ionicons name={icon} size={20} color={c.ink} />
-    </Pressable>
-  );
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg, paddingTop: insets.top }}>
@@ -182,10 +179,10 @@ export default function Nearby() {
             />
             {/* Controls float on the map; the map itself gets every drag, so panning never scrolls the page. */}
             <View style={{ position: 'absolute', right: space(4), top: space(3), gap: space(2) }}>
-              {mapButton('locate', t('centerOnMe'), () => mapRef.current?.recenter())}
-              {mapButton('add', t('zoomIn'), () => mapRef.current?.zoom(1))}
-              {mapButton('remove', t('zoomOut'), () => mapRef.current?.zoom(-1))}
-              {mapButton('refresh', t('refresh'), () => void refresh())}
+              <MapButton icon="locate" label={t('centerOnMe')} onPress={() => mapRef.current?.recenter()} />
+              <MapButton icon="add" label={t('zoomIn')} onPress={() => mapRef.current?.zoom(1)} />
+              <MapButton icon="remove" label={t('zoomOut')} onPress={() => mapRef.current?.zoom(-1)} />
+              <MapButton icon="refresh" label={t('refresh')} onPress={() => void refresh()} />
             </View>
             {statuses.length > 0 && (
               <View style={{ position: 'absolute', left: space(4), bottom: space(4) + insets.bottom + 64, flexDirection: 'row', flexWrap: 'wrap', gap: space(2), maxWidth: width - space(24), backgroundColor: c.surface, borderRadius: radius.md, borderWidth: 1, borderColor: c.line, paddingHorizontal: space(3), paddingVertical: space(2) }}>
@@ -280,5 +277,14 @@ export default function Nearby() {
         )}
       </Sheet>
     </View>
+  );
+}
+
+function MapButton({ icon, label, onPress }: { icon: React.ComponentProps<typeof Ionicons>['name']; label: string; onPress: () => void }) {
+  const { c } = useTheme();
+  return (
+    <Pressable onPress={onPress} hitSlop={6} accessibilityLabel={label} style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: c.surface, borderWidth: 1, borderColor: c.line, alignItems: 'center', justifyContent: 'center', elevation: 3, shadowColor: c.shadow, shadowOpacity: 0.15, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } }}>
+      <Ionicons name={icon} size={20} color={c.ink} />
+    </Pressable>
   );
 }

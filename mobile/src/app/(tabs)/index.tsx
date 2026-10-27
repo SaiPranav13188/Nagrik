@@ -24,7 +24,7 @@ export default function Home() {
   const notes = useApi(() => api.notifications(), { pollMs: 30000 });
   const health = useApi(() => api.health());
   const testMode = health.data?.portal_mode === 'sandbox';
-  const complaints = list.data ?? [];
+  const complaints = useMemo(() => list.data ?? [], [list.data]);
   const live = complaints.some((x) => IN_PROGRESS.includes(x.status));
 
   // Poll quickly while agents are working on something.

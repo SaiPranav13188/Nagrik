@@ -11,7 +11,7 @@ import { errorMessage } from '../lib/api';
 import { LANGUAGES, useI18n, type TKey } from '../lib/i18n';
 import { BRAND_GRADIENT, radius, space, useTheme } from '../theme';
 
-const SLIDES: Array<{ icon: keyof typeof Ionicons.glyphMap; title: TKey; body: TKey; chips: Array<keyof typeof Ionicons.glyphMap> }> = [
+const SLIDES: { icon: keyof typeof Ionicons.glyphMap; title: TKey; body: TKey; chips: (keyof typeof Ionicons.glyphMap)[] }[] = [
   { icon: 'camera', title: 'welcome1Title', body: 'welcome1Body', chips: ['car-outline', 'bulb-outline', 'trash-outline', 'water-outline'] },
   { icon: 'business', title: 'welcome2Title', body: 'welcome2Body', chips: ['search-outline', 'create-outline', 'globe-outline', 'receipt-outline'] },
   { icon: 'shield-checkmark', title: 'welcome3Title', body: 'welcome3Body', chips: ['refresh-outline', 'trending-up-outline', 'notifications-outline', 'trophy-outline'] },

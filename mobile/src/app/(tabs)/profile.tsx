@@ -44,13 +44,13 @@ export default function ProfileTab() {
   const [phone, setPhone] = useState(profile?.phone ?? '');
   const [busy, setBusy] = useState(false);
   const [perm, setPerm] = useState<string>('undetermined');
-  const [health, setHealth] = useState<string | null>(null);
+  const [health, setHealth] = useState<'statusOnlineTest' | 'statusOnline' | 'statusOffline' | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
 
   useEffect(() => {
     notificationPermission().then(setPerm);
-    api.health().then((h) => setHealth(h.portal_mode === 'sandbox' ? t('statusOnlineTest') : t('statusOnline'))).catch(() => setHealth(t('statusOffline')));
+    api.health().then((h) => setHealth(h.portal_mode === 'sandbox' ? 'statusOnlineTest' : 'statusOnline')).catch(() => setHealth('statusOffline'));
   }, []);
 
   const update = async (patch: Parameters<typeof api.updateMe>[0], okMsg?: string) => {
@@ -174,7 +174,7 @@ export default function ProfileTab() {
         <Divider />
         <Row icon="lock-closed-outline" label={t('privacy')} onPress={() => setSheet('privacy')} />
         <Divider />
-        <Row icon="pulse-outline" label={t('serverStatus')} value={health ?? '—'} />
+        <Row icon="pulse-outline" label={t('serverStatus')} value={health ? t(health) : '—'} />
       </Card>
 
       <Button
