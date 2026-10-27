@@ -33,7 +33,7 @@ import { runMonitorSweep } from '../src/services/scheduler.js';
 import { uploadsDir } from '../src/services/storage.js';
 import { cleanCitizenText } from '../src/services/citizenText.js';
 import { inventedDetails } from '../src/services/factCheck.js';
-import { friendlyStatusCheck } from '../src/services/activity.js';
+import { citizenStatusChecks, friendlyStatusCheck } from '../src/services/activity.js';
 import { complaintFacts, draftingAgent, templateDraft } from '../src/agents/drafting.js';
 import { intakeAgent } from '../src/agents/intake.js';
 
@@ -173,6 +173,14 @@ async function main() {
   const lost = await repo.listStatusChecks(cLost.id);
   check('portal has no record of the reference → says so plainly', lost.some((s) => s.status_found.includes('no record of reference WNP/2026/888888')), lost.map((s) => s.status_found));
   check('old raw errors are reworded for the app', friendlyStatusCheck('check_failed: Status selectors did not match: locator.waitFor: Timeout 10000ms exceeded.') === "Couldn't read the status. The portal page did not show a status for this reference.");
+  const shown = citizenStatusChecks([
+    { status_found: 'Registered' },
+    { status_found: 'check_failed: Status selectors did not match: x' },
+    { status_found: 'Registered (confirmation page)' },
+  ]).map((s) => s.status_found);
+  check('failed checks are hidden once a later check worked', shown.join('|') === 'Registered|Registered (confirmation page)', shown);
+  const stillFailing = citizenStatusChecks([{ status_found: 'check_failed: Status page unreachable: x' }, { status_found: 'Registered' }]);
+  check('…but the latest check is shown even when it failed', stillFailing.length === 2 && stillFailing[0].status_found.startsWith("Couldn't read"), stillFailing);
 
   // ───────────────────────────── CAPTCHA / OTP ─────────────────────────────
   section('CAPTCHA and OTP');

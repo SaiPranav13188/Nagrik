@@ -39,6 +39,16 @@ export function friendlyStatusCheck(found: string) {
   return failed ? `Couldn't read the status. ${friendlyCheckError(failed[1])}` : found;
 }
 
+/**
+ * Status history for the app (checks newest first). A failed check only matters while it is the
+ * latest word on the complaint, so older failures are dropped; the agent logs still keep them.
+ */
+export function citizenStatusChecks<T extends { status_found: string }>(checks: T[]) {
+  return checks
+    .filter((s, i) => i === 0 || !s.status_found.startsWith('check_failed:'))
+    .map((s) => ({ ...s, status_found: friendlyStatusCheck(s.status_found) }));
+}
+
 /** One escalation in plain words, built from its outcome rather than the stored agent note. */
 export function escalationSummary(e: Pick<Escalation, 'delivery_status' | 'recipient'>, office: string | null) {
   const to = office ?? e.recipient ?? 'the next office';
