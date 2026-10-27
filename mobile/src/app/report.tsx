@@ -23,8 +23,10 @@ import { radius, space, useTheme } from '../theme';
 
 type Loc =
   | { kind: 'pending' }
-  | { kind: 'gps'; latitude: number; longitude: number; accuracy: number | null; label: string | null }
+  | { kind: 'gps'; latitude: number; longitude: number; accuracy: number | null; label: string | null; source: 'device' | 'photo' }
   | { kind: 'manual' }
+  // A gallery photo without a saved location: the citizen may not be at the spot, so ask.
+  | { kind: 'choose' }
   | { kind: 'denied' };
 
 /** Resizes to ≤1600px, JPEG-compresses, and returns base64 for upload (≈200–500 KB). */
@@ -40,6 +42,33 @@ async function compress(uri: string, width?: number): Promise<{ uri: string; bas
   }
 }
 
+/** Where a gallery photo was taken, from its EXIF (Android: signed decimals; iOS: a {GPS} dictionary). */
+function photoCoords(exif: Record<string, unknown> | null | undefined): { latitude: number; longitude: number } | null {
+  if (!exif) return null;
+  const gps = (exif['{GPS}'] as Record<string, unknown> | undefined) ?? {};
+  const num = (v: unknown) => (typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN);
+  let lat = num(exif.GPSLatitude ?? gps.Latitude);
+  let lng = num(exif.GPSLongitude ?? gps.Longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return null;
+  if (lat > 0 && String(exif.GPSLatitudeRef ?? gps.LatitudeRef ?? '').toUpperCase() === 'S') lat = -lat;
+  if (lng > 0 && String(exif.GPSLongitudeRef ?? gps.LongitudeRef ?? '').toUpperCase() === 'W') lng = -lng;
+  return Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? { latitude: lat, longitude: lng } : null;
+}
+
+/** Friendly address preview: same OpenStreetMap source the agents use, device geocoder as fallback. */
+async function addressLabel(latitude: number, longitude: number): Promise<string | null> {
+  try {
+    return (await api.geocode(latitude, longitude)).label;
+  } catch {
+    try {
+      const [a] = await Location.reverseGeocodeAsync({ latitude, longitude });
+      if (a) return [a.name, a.street, a.district ?? a.subregion, a.city].filter((x, i, arr) => x && arr.indexOf(x) === i).slice(0, 3).join(', ') || null;
+    } catch {
+      // Coordinates alone are fine; the server geocodes authoritatively.
+    }
+  }
+  return null;
+}
 
 const ANALYZE_STEPS: TKey[] = ['analyzing1', 'analyzing2', 'analyzing3', 'analyzing4'];
 
@@ -62,36 +91,44 @@ export default function Report() {
   const [voice, setVoice] = useState<{ transcript: string; english: string } | null>(null);
 
   // ───────── location ─────────
+  // Every location change bumps this, so a slow GPS fix can't overwrite a newer choice
+  // (e.g. the citizen tapped "Enter address manually" while it was still searching).
+  const locSeq = useRef(0);
+  const setLocation = (next: Loc) => {
+    locSeq.current++;
+    setLoc(next);
+  };
+
   const locate = useCallback(async () => {
-    setLoc({ kind: 'pending' });
+    const seq = ++locSeq.current;
+    const set = (next: Loc) => {
+      if (seq === locSeq.current) setLoc(next);
+    };
+    set({ kind: 'pending' });
     try {
       const perm = await Location.requestForegroundPermissionsAsync();
-      if (perm.status !== 'granted') return setLoc({ kind: 'denied' });
+      if (perm.status !== 'granted') return set({ kind: 'denied' });
       const pos =
         (await Promise.race([
           Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
           new Promise<null>((r) => setTimeout(() => r(null), 12000)),
         ])) ?? (await Location.getLastKnownPositionAsync());
-      if (!pos) return setLoc({ kind: 'denied' });
+      if (!pos) return set({ kind: 'denied' });
       const { latitude, longitude, accuracy } = pos.coords;
-      setLoc({ kind: 'gps', latitude, longitude, accuracy: accuracy ?? null, label: null });
-      // Friendly address preview: same OpenStreetMap source the agents use, device geocoder as fallback.
-      let label: string | null = null;
-      try {
-        label = (await api.geocode(latitude, longitude)).label;
-      } catch {
-        try {
-          const [a] = await Location.reverseGeocodeAsync({ latitude, longitude });
-          if (a) label = [a.name, a.street, a.district ?? a.subregion, a.city].filter((x, i, arr) => x && arr.indexOf(x) === i).slice(0, 3).join(', ') || null;
-        } catch {
-          // Coordinates alone are fine; the server geocodes authoritatively.
-        }
-      }
-      if (label) setLoc({ kind: 'gps', latitude, longitude, accuracy: accuracy ?? null, label });
+      set({ kind: 'gps', latitude, longitude, accuracy: accuracy ?? null, label: null, source: 'device' });
+      const label = await addressLabel(latitude, longitude);
+      if (label) set({ kind: 'gps', latitude, longitude, accuracy: accuracy ?? null, label, source: 'device' });
     } catch {
-      setLoc({ kind: 'denied' });
+      set({ kind: 'denied' });
     }
   }, []);
+
+  const applyPhotoLocation = async (latitude: number, longitude: number) => {
+    const seq = ++locSeq.current;
+    setLoc({ kind: 'gps', latitude, longitude, accuracy: null, label: null, source: 'photo' });
+    const label = await addressLabel(latitude, longitude);
+    if (label && seq === locSeq.current) setLoc({ kind: 'gps', latitude, longitude, accuracy: null, label, source: 'photo' });
+  };
 
   useEffect(() => {
     void locate();
@@ -113,15 +150,23 @@ export default function Report() {
       const p = await compress(r.assets[0].uri, r.assets[0].width);
       setPhoto(p.uri);
       setPhotoBase64(p.base64);
+      // Taken just now, so the problem is where the citizen is: refresh the live location
+      // (unless they already typed the address).
+      if (loc.kind !== 'manual') void locate();
     }
   };
 
   const pickPhoto = async () => {
-    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.85, exif: false });
+    // EXIF is read only to find where the photo was taken; the uploaded copy is re-encoded without it.
+    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.85, exif: true });
     if (!r.canceled && r.assets[0]) {
+      const where = photoCoords(r.assets[0].exif);
       const p = await compress(r.assets[0].uri, r.assets[0].width);
       setPhoto(p.uri);
       setPhotoBase64(p.base64);
+      if (where) void applyPhotoLocation(where.latitude, where.longitude);
+      // No saved location: the citizen may not be at the spot now, so don't assume — ask.
+      else if (loc.kind !== 'manual') setLocation({ kind: 'choose' });
     }
   };
 
@@ -250,18 +295,28 @@ export default function Report() {
               {loc.kind === 'gps' && (
                 <>
                   <Text variant="bodyStrong" numberOfLines={2}>{loc.label ?? `${loc.latitude.toFixed(5)}, ${loc.longitude.toFixed(5)}`}</Text>
-                  {!!loc.accuracy && <Text variant="small" tone="faint">{t('accuracy', { m: Math.round(loc.accuracy) })}</Text>}
+                  <Text variant="small" tone="faint">
+                    {loc.source === 'photo' ? t('locationFromPhoto') : `${t('liveLocation')}${loc.accuracy ? ` · ${t('accuracy', { m: Math.round(loc.accuracy) })}` : ''}`}
+                  </Text>
                 </>
               )}
+              {loc.kind === 'choose' && <Text variant="bodyStrong">{t('photoNoLocation')}</Text>}
               {(loc.kind === 'denied' || loc.kind === 'manual') && <Text variant="small" tone="muted">{loc.kind === 'denied' ? t('locationDenied') : t('typeAddress')}</Text>}
             </View>
-            {loc.kind === 'pending' ? null : (
-              <Pressable onPress={loc.kind === 'gps' ? () => setLoc({ kind: 'manual' }) : locate} hitSlop={8}>
-                <Ionicons name={loc.kind === 'gps' ? 'create-outline' : 'locate'} size={22} color={c.primary} accessibilityLabel={loc.kind === 'gps' ? t('useTypedAddress') : t('useGps')} />
-              </Pressable>
-            )}
           </View>
-          {(loc.kind === 'denied' || loc.kind === 'manual') && <Input placeholder={t('addressPlaceholder')} value={manualAddress} onChangeText={setManualAddress} icon="map-outline" multiline style={{ minHeight: 44 }} />}
+          {(loc.kind === 'denied' || loc.kind === 'manual') && (
+            <Input placeholder={t('addressPlaceholder')} value={manualAddress} onChangeText={setManualAddress} icon="map-outline" multiline style={{ minHeight: 44 }} autoFocus={loc.kind === 'manual'} />
+          )}
+          {loc.kind !== 'pending' && (
+            <View style={{ flexDirection: 'row', gap: space(2) }}>
+              {!(loc.kind === 'gps' && loc.source === 'device') && (
+                <Button title={t('useGps')} variant="secondary" size="sm" icon="locate" style={{ flex: 1 }} onPress={() => void locate()} />
+              )}
+              {loc.kind !== 'manual' && loc.kind !== 'denied' && (
+                <Button title={t('useTypedAddress')} variant="secondary" size="sm" icon="create-outline" style={{ flex: 1 }} onPress={() => setLocation({ kind: 'manual' })} />
+              )}
+            </View>
+          )}
         </Card>
 
         {/* Voice → text */}
