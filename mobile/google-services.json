@@ -7,6 +7,25 @@
   "client": [
     {
       "client_info": {
+        "mobilesdk_app_id": "1:1008087980626:android:08f3ca1228f9d190a0dd8b",
+        "android_client_info": {
+          "package_name": "app.nagrik.citizen"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAeXZL1n-bTMnNQNlO2X7r5mNuQgg7AWFE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:1008087980626:android:cd43fb43c00d2b86a0dd8b",
         "android_client_info": {
           "package_name": "app.nagrik.civic"

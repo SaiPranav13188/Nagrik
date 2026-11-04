@@ -24,7 +24,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "app.nagrik.civic",
+      "package": "app.nagrik.citizen",
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.CAMERA",

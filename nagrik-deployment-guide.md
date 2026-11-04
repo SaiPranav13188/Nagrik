@@ -22,7 +22,7 @@ Right now you build an APK and install it on your phone, and it talks to your ba
 | Rate limiting and security headers | `express-rate-limit`, `helmet` in `backend/package.json` |
 | EAS build profiles: `preview` (APK) and `production` (auto-incrementing version) | `mobile/eas.json` |
 | Both profiles point at the Render backend | `EXPO_PUBLIC_API_URL=https://nagrik-backend-uopu.onrender.com` |
-| Android package name | `app.nagrik.civic` in `mobile/app.json` |
+| Android package name | `app.nagrik.citizen` in `mobile/app.json` (was `app.nagrik.civic`; renamed 4 Nov 2026 because the free account can only register never-seen names) |
 | Permission explanations for camera, location, microphone | `mobile/app.json` |
 | Sandbox portal mode, confirm-before-submit, CAPTCHA and OTP hand-off | `PORTAL_MODE=sandbox`, guardrails table in README |
 | Pilot checklist | `docs/PILOT.md` |
@@ -256,7 +256,7 @@ Google's free **limited distribution account** ([Google](https://support.google.
 Google is introducing **developer verification**: apps on certified Android devices will need to come from a registered developer. It started on 30 September 2026 in Indonesia, Singapore and Thailand, and expands globally in **2027** ([Google](https://support.google.com/android-developer-console/answer/16561738?hl=en)). Google's page doesn't mention India yet, so sharing APKs in India should keep working for now. Registering early means your pilot won't break when verification reaches India.
 
 ### 7.3 Steps
-1. Create the free limited distribution account in the Android Developer Console and register the package name `app.nagrik.civic`.
+1. Create the free limited distribution account in the Android Developer Console and register the package name `app.nagrik.citizen`. Done 4 Nov 2026 (key fingerprint `47:BB:76…A5:A3`).
 2. Build an installable APK with your existing preview profile:
    ```bash
    cd mobile
@@ -268,7 +268,7 @@ Google is introducing **developer verification**: apps on certified Android devi
 6. For each fix, build a new APK and share it again. Testers install it over the old one.
 
 ### 7.4 Moving from Option 2 to Option 1 later
-- Keep the **same package name** (`app.nagrik.civic`).
+- Keep the **same package name** (`app.nagrik.citizen`).
 - **Signature problem:** the APK you shared is signed with your EAS key, while the Play Store version is signed by Google's Play App Signing key. Android won't install one over the other, so **testers must uninstall the pilot APK before installing from Play**. Their data is safe on your server, so they just sign in again. Tell them in advance.
 - Your pilot testers make a good start on the **12 testers for 14 days** needed for Play's closed test.
 
