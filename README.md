@@ -19,6 +19,53 @@ Every stage is an AI SDK `generateText` tool loop: the model picks its next acti
 
 ---
 
+## Deployments
+
+| | Render (pilot) | AWS ECS Fargate (CI/CD demo) |
+|---|---|---|
+| Used by | The Android app and pilot testers | Portfolio demo, run for short periods and then deleted |
+| Deploys | Render auto-deploys `main` | GitHub Actions: tests + agent evals gate every deploy |
+| Photos | Supabase storage | Private S3 bucket, 5-minute pre-signed URLs |
+| Secrets | Render environment | AWS Secrets Manager |
+| Database | Supabase (live project) | Separate Supabase project |
+| Portal mode | live (citizen taps Submit) | sandbox only |
+
+### AWS architecture
+
+```
+GitHub push ─► GitHub Actions: typecheck, failure-mode tests, S3 tests, agent eval, help eval
+                    │ (all pass, main only)
+                    ▼
+            build Docker image ─► Amazon ECR (tag = commit SHA)
+                    │
+                    ▼
+Phone / curl ─► Application Load Balancer ─► ECS Fargate task (Nagrik API, non-root container)
+                                                 ├─ secrets from AWS Secrets Manager (execution role)
+                                                 ├─ photos in a private S3 bucket (task role)
+                                                 ├─ Supabase + Gemini + Langfuse over the internet
+                                                 └─ logs to CloudWatch (/ecs/nagrik, 14 days)
+```
+
+### How it deploys
+
+1. A push to `main` runs [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml).
+2. The `test` job runs the typecheck, failure-mode tests, S3 tests, the agent eval (fails on regression) and the help eval. If any fails, nothing is deployed.
+3. The `deploy` job signs in to AWS with **GitHub OIDC**: short-lived credentials, no AWS keys stored in GitHub. The role only trusts this repository's `main` branch and `production` environment (GitHub's immutable `repo:owner@id/repo@id` subject).
+4. It builds the image, pushes it to ECR tagged with the commit SHA, renders [`aws/task-definition.json`](aws/task-definition.json) with that image and deploys it to the ECS service, waiting until the service is stable. Then it calls `/health` on the load balancer.
+5. **Rollback:** redeploy an earlier task definition revision (each one points at an earlier commit's image): `aws ecs update-service --cluster nagrik-cluster --service nagrik-service --task-definition nagrik:<revision>`.
+
+### IAM: least privilege
+
+| Role | Who uses it | Allowed | Why |
+|---|---|---|---|
+| `nagrikEcsExecutionRole` | ECS itself, at task start | `AmazonECSTaskExecutionRolePolicy`; `secretsmanager:GetSecretValue` on `nagrik/prod` only | Pull the image, write logs, inject secrets as env vars |
+| `nagrikTaskRole` | The running Nagrik code | `s3:PutObject`, `GetObject`, `DeleteObject` on `nagrik-photos-*/*`; `s3:ListBucket` on that bucket | Upload and show photos; delete a user's photos when they delete their account |
+| `github-deploy-nagrik` | GitHub Actions via OIDC | ECR push to the `nagrik` repo; `ecs:RegisterTaskDefinition`, `DescribeTaskDefinition`, `DescribeServices`, `UpdateService`; `iam:PassRole` on the two roles above only | Ship a new image and task definition, nothing else |
+
+Checked with the IAM policy simulator: the task role is **denied** reading another bucket, deleting its own bucket and reading the secret; the execution role is **denied** reading photos. An object URL without a signature returns 403.
+
+---
+
 ## Quick start (no accounts or keys needed)
 
 Requirements: Node 20+.
