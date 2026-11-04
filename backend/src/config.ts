@@ -29,6 +29,10 @@ export const config = {
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
   supabasePhotoBucket: process.env.SUPABASE_PHOTO_BUCKET || 'complaint-photos',
   localDataDir: process.env.LOCAL_DATA_DIR || '.data',
+  // "s3" = private S3 bucket (the AWS deployment). Otherwise Supabase storage, or local files.
+  photoStorage: (process.env.PHOTO_STORAGE === 's3' ? 's3' : 'default') as 's3' | 'default',
+  s3Bucket: process.env.S3_BUCKET || '',
+  awsRegion: process.env.AWS_REGION || 'ap-south-1',
 
   // Auth (local mode only: HMAC-signed device tokens)
   localAuthSecret: process.env.LOCAL_AUTH_SECRET || 'dev-only-change-me',
@@ -108,6 +112,7 @@ export function productionSecretProblems(env: NodeJS.ProcessEnv = process.env): 
     else if (DEV_DEFAULTS.has(value)) problems.push(`${name} is still the development default`);
     else if (value.length < 24) problems.push(`${name} must be at least 24 characters`);
   }
+  if (env.PHOTO_STORAGE === 's3' && !env.S3_BUCKET) problems.push('PHOTO_STORAGE=s3 needs S3_BUCKET');
   return problems;
 }
 export const useGemini = Boolean(config.geminiApiKey);

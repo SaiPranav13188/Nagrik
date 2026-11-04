@@ -15,12 +15,15 @@
     "mcp": "tsx src/mcp/server.ts",
     "mcp:login": "tsx scripts/mcp-login.ts",
     "test:mcp": "tsx scripts/test-mcp.ts",
-    "test:tracing": "tsx scripts/test-tracing.ts"
+    "test:tracing": "tsx scripts/test-tracing.ts",
+    "test:s3": "tsx scripts/test-s3.ts"
   },
   "type": "module",
   "dependencies": {
     "@ai-sdk/google": "^4.0.85",
     "@ai-sdk/provider": "^4.0.19",
+    "@aws-sdk/client-s3": "^3.1161.0",
+    "@aws-sdk/s3-request-presigner": "^3.1161.0",
     "@langfuse/otel": "5.13.1",
     "@langfuse/tracing": "5.13.1",
     "@modelcontextprotocol/sdk": "^1.32.1",
@@ -48,6 +51,7 @@
     "@types/express": "^5.0.6",
     "@types/multer": "^2.3.0",
     "@types/node": "^26.6.3",
+    "aws-sdk-client-mock": "^4.1.0",
     "typescript": "^7.0.2"
   },
   "private": true,

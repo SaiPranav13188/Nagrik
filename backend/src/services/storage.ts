@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { config } from '../config.js';
 import { repo } from '../db/index.js';
 import { SupabaseRepo } from '../db/supabaseRepo.js';
+import { getPhoto, photosPrefix, putPhoto } from './s3Photos.js';
 
 export const uploadsDir = path.resolve(config.localDataDir, 'uploads');
 fs.mkdirSync(uploadsDir, { recursive: true });
@@ -14,6 +15,10 @@ const EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', '
 export async function savePhoto(userId: string, buffer: Buffer, mimeType: string): Promise<string> {
   const ext = EXT[mimeType] ?? 'jpg';
   const key = `${userId}/${Date.now()}-${randomUUID().slice(0, 8)}.${ext}`;
+  if (config.photoStorage === 's3') {
+    await putPhoto(key, buffer, mimeType);
+    return `${photosPrefix()}${key}`;
+  }
   if (repo instanceof SupabaseRepo) {
     const bucket = repo.client.storage.from(config.supabasePhotoBucket);
     const { error } = await bucket.upload(key, buffer, { contentType: mimeType, upsert: false });
@@ -32,6 +37,7 @@ export async function savePhoto(userId: string, buffer: Buffer, mimeType: string
  */
 export function isOwnPhotoUrl(url: string, userId: string) {
   const prefixes = [`${config.publicBaseUrl}/uploads/${userId}/`];
+  if (config.photoStorage === 's3') prefixes.push(`${photosPrefix()}${userId}/`);
   if (repo instanceof SupabaseRepo) {
     // getPublicUrl strips trailing slashes; put it back so "<user>/" can't match "<user>x/".
     prefixes.push(repo.client.storage.from(config.supabasePhotoBucket).getPublicUrl(userId).data.publicUrl.replace(/\/?$/, '/'));
@@ -42,6 +48,7 @@ export function isOwnPhotoUrl(url: string, userId: string) {
 /** Returns image bytes for a stored photo URL (local file or remote). */
 export async function loadPhoto(url: string): Promise<{ data: Buffer; mimeType: string }> {
   const localPrefix = `${config.publicBaseUrl}/uploads/`;
+  if (config.photoStorage === 's3' && url.startsWith(photosPrefix())) return getPhoto(decodeURIComponent(url.slice(photosPrefix().length)));
   if (url.startsWith(localPrefix)) {
     const rel = decodeURIComponent(url.slice(localPrefix.length));
     const file = path.resolve(uploadsDir, rel);

@@ -44,6 +44,9 @@ jobs:
       - name: MCP server tests
         run: npm run test:mcp
 
+      - name: S3 photo storage (mocked S3)
+        run: npm run test:s3
+
       - name: Tracing wiring (fake Langfuse endpoint)
         run: npm run test:tracing
 
@@ -60,6 +63,23 @@ jobs:
           name: eval-results-offline
           path: backend/eval/results/offline.json
           if-no-files-found: ignore
+
+  docker:
+    # Builds the production image (used by Render and AWS) and checks it starts as the non-root
+    # user and answers /health, before anything reaches main.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t nagrik backend
+      - name: Run and check /health
+        run: |
+          docker run -d --name nagrik -p 4000:4000             -e NODE_ENV=test -e PORTAL_MODE=sandbox -e ENABLE_CRON=false nagrik
+          for i in $(seq 1 30); do curl -fsS localhost:4000/health && break; sleep 2; done
+          curl -fsS localhost:4000/health
+          test "$(docker exec nagrik whoami)" = "pwuser"
+          docker logs nagrik | tail -20
 
   gemini-eval:
     if: github.event_name == 'workflow_dispatch' && inputs.gemini_eval

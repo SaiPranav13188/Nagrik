@@ -1,0 +1,51 @@
+{
+  "family": "nagrik",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "runtimePlatform": { "cpuArchitecture": "X86_64", "operatingSystemFamily": "LINUX" },
+  "cpu": "1024",
+  "memory": "2048",
+  "executionRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/nagrikEcsExecutionRole",
+  "taskRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/nagrikTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "nagrik",
+      "image": "<ACCOUNT_ID>.dkr.ecr.ap-south-1.amazonaws.com/nagrik:latest",
+      "essential": true,
+      "portMappings": [{ "containerPort": 4000, "protocol": "tcp" }],
+      "environment": [
+        { "name": "AWS_REGION", "value": "ap-south-1" },
+        { "name": "S3_BUCKET", "value": "<BUCKET>" },
+        { "name": "PHOTO_STORAGE", "value": "s3" },
+        { "name": "NODE_ENV", "value": "production" },
+        { "name": "PORT", "value": "4000" },
+        { "name": "PUBLIC_BASE_URL", "value": "<PUBLIC_BASE_URL>" },
+        { "name": "PORTAL_MODE", "value": "sandbox" },
+        { "name": "ENABLE_CRON", "value": "false" },
+        { "name": "ALLOW_LIVE_ESCALATION_EMAILS", "value": "false" },
+        { "name": "LANGFUSE_BASE_URL", "value": "https://cloud.langfuse.com" }
+      ],
+      "secrets": [
+        { "name": "GEMINI_API_KEY", "valueFrom": "<SECRET_ARN>:GEMINI_API_KEY::" },
+        { "name": "SUPABASE_URL", "valueFrom": "<SECRET_ARN>:SUPABASE_URL::" },
+        { "name": "SUPABASE_SERVICE_ROLE_KEY", "valueFrom": "<SECRET_ARN>:SUPABASE_SERVICE_ROLE_KEY::" },
+        { "name": "ADMIN_API_KEY", "valueFrom": "<SECRET_ARN>:ADMIN_API_KEY::" },
+        { "name": "CRON_SECRET", "valueFrom": "<SECRET_ARN>:CRON_SECRET::" },
+        { "name": "LANGFUSE_PUBLIC_KEY", "valueFrom": "<SECRET_ARN>:LANGFUSE_PUBLIC_KEY::" },
+        { "name": "LANGFUSE_SECRET_KEY", "valueFrom": "<SECRET_ARN>:LANGFUSE_SECRET_KEY::" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/nagrik",
+          "awslogs-region": "ap-south-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "node -e \"fetch('http://localhost:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""],
+        "interval": 30, "timeout": 5, "retries": 3, "startPeriod": 60
+      }
+    }
+  ]
+}

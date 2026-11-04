@@ -11,6 +11,7 @@ import { clientErrorsRouter } from './routes/clientErrors.js';
 import { adminRouter, jobsRouter } from './routes/admin.js';
 import { sandboxPortalRouter } from './sandboxPortal/router.js';
 import { uploadsDir } from './services/storage.js';
+import { isSafeKey, photoUrl, PRESIGN_SECONDS } from './services/s3Photos.js';
 import { queueStats } from './services/scheduler.js';
 import { browserQueueDepth } from './automation/portal.js';
 import { tracingEnabled } from './ai/tracing.js';
@@ -63,6 +64,19 @@ app.get('/health', async (req, res) => {
 app.use(apiLimiter);
 app.use(['/admin', '/jobs'], failedAuthLimiter);
 app.use('/uploads', express.static(uploadsDir, { maxAge: '7d', fallthrough: false }));
+// AWS deployment: photos live in a private S3 bucket. The stored link points here and we redirect
+// to a pre-signed URL that expires in 5 minutes, so S3 itself is never public.
+app.get(/^\/photos\/(.+)$/, async (req, res, next) => {
+  if (config.photoStorage !== 's3') return next();
+  const key = decodeURIComponent((req.params as unknown as string[])[0]);
+  if (!isSafeKey(key)) return res.status(400).json({ error: 'Bad photo path' });
+  try {
+    res.set('Cache-Control', `private, max-age=${PRESIGN_SECONDS - 60}`);
+    res.redirect(302, await photoUrl(key));
+  } catch (e) {
+    next(e);
+  }
+});
 app.use('/auth', authRouter);
 app.use('/me', meRouter);
 app.use('/complaints', complaintsRouter);

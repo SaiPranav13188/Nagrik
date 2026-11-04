@@ -6,6 +6,7 @@ import { SupabaseRepo } from '../db/supabaseRepo.js';
 import { deleteTraces } from '../ai/tracing.js';
 import { holdSubmission } from './scheduler.js';
 import { uploadsDir } from './storage.js';
+import { deleteUserPhotos } from './s3Photos.js';
 
 /**
  * Account deletion (Play policy + DPDP): removes the user's complaints, photos, notifications,
@@ -26,7 +27,9 @@ export async function deleteAccount(userId: string) {
   }
 
   let photos = 0;
-  if (repo instanceof SupabaseRepo) {
+  if (config.photoStorage === 's3') {
+    photos = await deleteUserPhotos(userId);
+  } else if (repo instanceof SupabaseRepo) {
     const bucket = repo.client.storage.from(config.supabasePhotoBucket);
     for (;;) {
       const { data, error } = await bucket.list(userId, { limit: 100 });

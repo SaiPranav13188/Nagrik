@@ -1,0 +1,104 @@
+name: test-and-deploy
+
+# Tests and the agent evals gate every deploy to AWS ECS Fargate. AWS credentials come from
+# GitHub OIDC (short-lived, no stored keys). Render keeps auto-deploying main separately.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  id-token: write # needed for OIDC
+  contents: read
+
+concurrency:
+  group: deploy-aws
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: nagrik
+  ECS_CLUSTER: nagrik-cluster
+  ECS_SERVICE: nagrik-service
+  TASK_DEFINITION: aws/task-definition.json
+  CONTAINER_NAME: nagrik
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npx playwright install --with-deps chromium
+      - run: npm run typecheck
+      - name: Failure-mode tests
+        run: npm run test:failures
+      - name: S3 photo storage (mocked S3)
+        run: npm run test:s3
+      - name: Agent eval (fails on regression)
+        run: npm run eval:intake -- --offline --check
+      - name: Help assistant eval (every case must pass)
+        run: npm run eval:help -- --offline
+
+  deploy:
+    needs: test # only runs if tests and evals pass
+    # Off until AWS is set up: add the repository variables AWS_ROLE_ARN, S3_BUCKET, SECRET_ARN, PUBLIC_BASE_URL.
+    if: github.ref == 'refs/heads/main' && vars.AWS_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - id: build
+        name: Build and push the image (tagged with the commit SHA)
+        run: |
+          IMAGE=${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          docker build -t "$IMAGE" backend
+          docker push "$IMAGE"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Fill in account-specific values
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          sed -i \
+            -e "s|<ACCOUNT_ID>|$ACCOUNT_ID|g" \
+            -e "s|<BUCKET>|${{ vars.S3_BUCKET }}|g" \
+            -e "s|<SECRET_ARN>|${{ vars.SECRET_ARN }}|g" \
+            -e "s|<PUBLIC_BASE_URL>|${{ vars.PUBLIC_BASE_URL }}|g" \
+            ${{ env.TASK_DEFINITION }}
+
+      - id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ env.TASK_DEFINITION }}
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.build.outputs.image }}
+
+      - uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      - name: Smoke test the live service
+        run: curl -fsS "${{ vars.PUBLIC_BASE_URL }}/health"
