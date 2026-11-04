@@ -197,9 +197,9 @@ export const HELP_TOPICS: HelpTopic[] = [
     about: 'privacy, who sees my name/phone/photos, data sharing, AI processing',
     patterns: [/\bprivacy\b/, /\bwho (can )?(see|sees)\b/, /\b(share|sharing|sell)\b.{0,20}\b(my )?(data|name|number|phone|mobile|details)\b/, /\bmy (data|details|information)\b.{0,20}\b(safe|used|go)\b/, /గోప్యత|నా వివరాలు ఎవరు|गोपनीयता|मेरा डेटा/],
     answer: () => ({
-      en: "Your name and mobile number are shared only with the government office handling your complaint — when it's filed, or when you approve an escalation. Photos and complaint text are processed by Google Gemini (AI) to write the complaint. Nagrik shows no ads and doesn't sell data. Full details: Profile → Your privacy.",
-      te: "మీ పేరు, మొబైల్ నంబర్ మీ ఫిర్యాదును చూసే ప్రభుత్వ కార్యాలయంతో మాత్రమే పంచుకుంటాం — ఫిర్యాదు నమోదైనప్పుడు లేదా మీరు ఎస్కలేషన్ ఆమోదించినప్పుడు. ఫిర్యాదు రాయడానికి ఫోటోలు, వివరాలను Google Gemini (AI) ప్రాసెస్ చేస్తుంది. నాగరిక్ ప్రకటనలు చూపదు, డేటా అమ్మదు. పూర్తి వివరాలు: ప్రొఫైల్ → మీ గోప్యత.",
-      hi: "आपका नाम और मोबाइल नंबर सिर्फ़ आपकी शिकायत देखने वाले सरकारी दफ़्तर से साझा होता है — शिकायत दर्ज होने पर या आपके एस्केलेशन मंज़ूर करने पर। शिकायत लिखने के लिए फ़ोटो और विवरण Google Gemini (AI) प्रोसेस करता है। नागरिक विज्ञापन नहीं दिखाता और डेटा नहीं बेचता। पूरी जानकारी: प्रोफ़ाइल → आपकी गोपनीयता।",
+      en: "Your name and mobile number are shared only with the government office handling your complaint — when it's filed, or when you approve an escalation. Photos and complaint text are processed by Google Gemini (AI) to write the complaint; on the free Gemini service, Google may keep and review them to improve its products. Nagrik shows no ads and doesn't sell data. Full details: Profile → Your privacy.",
+      te: "మీ పేరు, మొబైల్ నంబర్ మీ ఫిర్యాదును చూసే ప్రభుత్వ కార్యాలయంతో మాత్రమే పంచుకుంటాం — ఫిర్యాదు నమోదైనప్పుడు లేదా మీరు ఎస్కలేషన్ ఆమోదించినప్పుడు. ఫిర్యాదు రాయడానికి ఫోటోలు, వివరాలను Google Gemini (AI) ప్రాసెస్ చేస్తుంది; ఉచిత Gemini సేవలో Google తన ఉత్పత్తులను మెరుగుపరచడానికి వీటిని ఉంచుకుని పరిశీలించవచ్చు. నాగరిక్ ప్రకటనలు చూపదు, డేటా అమ్మదు. పూర్తి వివరాలు: ప్రొఫైల్ → మీ గోప్యత.",
+      hi: "आपका नाम और मोबाइल नंबर सिर्फ़ आपकी शिकायत देखने वाले सरकारी दफ़्तर से साझा होता है — शिकायत दर्ज होने पर या आपके एस्केलेशन मंज़ूर करने पर। शिकायत लिखने के लिए फ़ोटो और विवरण Google Gemini (AI) प्रोसेस करता है; मुफ़्त Gemini सेवा में Google अपने उत्पाद बेहतर बनाने के लिए इन्हें रख और जाँच सकता है। नागरिक विज्ञापन नहीं दिखाता और डेटा नहीं बेचता। पूरी जानकारी: प्रोफ़ाइल → आपकी गोपनीयता।",
     }),
   },
   {

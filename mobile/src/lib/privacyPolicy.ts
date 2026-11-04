@@ -2,7 +2,7 @@
  * The privacy policy shown inside the app (Profile → Your privacy). Keep it word for word in sync
  * with docs/privacy/index.html, which is the public copy Google Play links to.
  */
-export const PRIVACY_UPDATED = '27 October 2026';
+export const PRIVACY_UPDATED = '4 November 2026';
 
 export type PolicyBlock =
   | { kind: 'p'; text: string }
@@ -42,7 +42,7 @@ export const PRIVACY_SECTIONS: { title: string; blocks: PolicyBlock[] }[] = [
         items: [
           "The government office handling your complaint. When you file a complaint, your name, mobile number, email, complaint text, photo and location are sent to that office's grievance portal. If a complaint is not resolved, an escalation letter with the same details goes to a senior office, but only after you approve it in the app or send it yourself.",
           'Other Nagrik users nearby. The "Nearby" screen shows reported issues (photo, description, location, status and department) so neighbours can support them. Your name, mobile number, email and profile photo are never shown to other users.',
-          'Service providers that run the app for us: Supabase (sign-in, database and photo storage; photos are stored at unguessable web links), Google Gemini (reads your photo, text, voice or help question to understand it and write the complaint or answer), Render (hosts our server), Langfuse (records how the app\'s AI steps ran, so we can find and fix mistakes), Resend (sends escalation emails you approve), Expo and Google Firebase Cloud Messaging (deliver push notifications), and OpenStreetMap or Esri (map images; your device requests map tiles directly from them). These providers may process data on servers outside India. They may use it only to provide their service to us.',
+          'Service providers that run the app for us: Supabase (sign-in, database and photo storage; photos are stored at unguessable web links), Google Gemini (reads your photo, text, voice or help question to understand it and write the complaint or answer; we use the free Gemini service, under which Google may keep what is sent and have it reviewed by people to improve its products, so please do not include anything you would not want Google to see), Render (hosts our server), Langfuse (records how the app\'s AI steps ran, so we can find and fix mistakes), Resend (sends escalation emails you approve), Expo and Google Firebase Cloud Messaging (deliver push notifications), and OpenStreetMap or Esri (map images; your device requests map tiles directly from them). These providers may process data on servers outside India. Apart from Google Gemini as described above, they may use it only to provide their service to us.',
           'When the law requires it, for example a valid legal order.',
         ],
       },
