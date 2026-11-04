@@ -67,6 +67,9 @@ export async function traceAgentRun<T>(
     };
     span = startObservation(`agent:${name}`, { input: meta.input }, { asType: 'agent' });
     span.otelSpan.setAttributes(traceAttrs);
+    // One log line per agent run, so a request in the Render/CloudWatch logs can be matched to its
+    // Langfuse trace (IDs only, never complaint content).
+    console.log(`[trace] agent=${name} trace=${span.traceId}${meta.complaintId ? ` complaint=${meta.complaintId}` : ''}`);
     span.setTraceIO({ input: meta.input });
   }
   try {
