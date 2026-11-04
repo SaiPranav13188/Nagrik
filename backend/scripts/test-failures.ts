@@ -34,6 +34,7 @@ import { uploadsDir } from '../src/services/storage.js';
 import { cleanCitizenText } from '../src/services/citizenText.js';
 import { inventedDetails } from '../src/services/factCheck.js';
 import { citizenStatusChecks, friendlyStatusCheck } from '../src/services/activity.js';
+import { scrub } from '../src/routes/clientErrors.js';
 import { complaintFacts, draftingAgent, templateDraft } from '../src/agents/drafting.js';
 import { intakeAgent } from '../src/agents/intake.js';
 
@@ -477,6 +478,11 @@ async function main() {
   let last = 0;
   for (let i = 0; i < 25; i++) last = (await http('GET', '/admin/jurisdictions', undefined, { 'x-admin-key': `guess-${i}` })).status;
   check('repeated wrong admin keys → rate limited (429)', last === 429, last);
+
+  const crash = await http('POST', '/client-errors', { message: 'TypeError for ravi@example.com at +91 98765 43210', stack: 'at fetch (https://x.test/a?token=abc) at eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9abcdef', fatal: true, appVersion: '1.0.0', platform: 'android' });
+  check('app crash report accepted without sign-in → 204', crash.status === 204, crash);
+  const scrubbed = scrub('ravi@example.com +91 98765 43210 https://x.test/a?token=abc eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9abcdef', 500);
+  check('crash reports drop emails, phone numbers, query strings and tokens', !/ravi@|98765|token=abc|eyJhbGci/.test(scrubbed), scrubbed);
 }
 
 main()

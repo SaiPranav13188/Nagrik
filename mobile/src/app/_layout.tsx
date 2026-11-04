@@ -1,8 +1,8 @@
 import 'react-native-url-polyfill/auto';
 import React, { useEffect, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { ActivityIndicator, View } from 'react-native';
-import { Stack, router } from 'expo-router';
+import { ActivityIndicator, Pressable, Text as RNText, View } from 'react-native';
+import { Stack, router, usePathname, type ErrorBoundaryProps } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -14,8 +14,28 @@ import { Button, Text } from '../components/ui';
 import { onNotificationTap } from '../lib/notifications';
 import { ToastProvider } from '../components/Toast';
 import { useTheme } from '../theme';
+import { installCrashReporter, reportError, setCrashScreen } from '../lib/crashReporter';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
+installCrashReporter();
+
+/** Shown instead of a white screen when a screen crashes; the crash is reported. No providers here, so plain text in all 3 languages. */
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  useEffect(() => {
+    reportError(error, { fatal: false, source: 'boundary' });
+    SplashScreen.hideAsync().catch(() => {});
+  }, [error]);
+  return (
+    <View style={{ flex: 1, backgroundColor: '#0F766E', alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 }}>
+      <RNText style={{ color: '#fff', fontSize: 22, fontWeight: '700', textAlign: 'center' }}>Something went wrong</RNText>
+      <RNText style={{ color: '#D1FAE5', fontSize: 16, textAlign: 'center' }}>ఏదో పొరపాటు జరిగింది · कुछ गलत हो गया</RNText>
+      <RNText style={{ color: '#D1FAE5', fontSize: 14, textAlign: 'center' }}>Your complaints are safe. This problem has been reported to us.</RNText>
+      <Pressable onPress={retry} accessibilityRole="button" style={{ marginTop: 12, backgroundColor: '#fff', borderRadius: 14, paddingVertical: 14, paddingHorizontal: 32 }}>
+        <RNText style={{ color: '#0F766E', fontSize: 16, fontWeight: '700' }}>Try again · మళ్ళీ ప్రయత్నించండి · फिर से कोशिश करें</RNText>
+      </Pressable>
+    </View>
+  );
+}
 
 function RootNavigator() {
   const { status, profile, profileError, refreshProfile, signOut } = useAuth();
@@ -25,6 +45,8 @@ function RootNavigator() {
   const signedIn = status === 'signedIn';
   const ready = status !== 'loading' && (!signedIn || profile !== null || !!profileError);
   const complete = isProfileComplete(profile);
+  const pathname = usePathname();
+  useEffect(() => setCrashScreen(pathname), [pathname]);
   // The free server sleeps when idle and takes up to a minute to wake: say so instead of a blank splash.
   const [slow, setSlow] = useState(false);
   useEffect(() => {
