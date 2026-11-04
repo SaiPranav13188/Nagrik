@@ -52,7 +52,8 @@ jobs:
 
   deploy:
     needs: test # only runs if tests and evals pass
-    # Off until AWS is set up: add the repository variables AWS_ROLE_ARN, S3_BUCKET, SECRET_ARN, PUBLIC_BASE_URL.
+    # Off until AWS is set up (repository variable AWS_ROLE_ARN). The ECS steps also need
+    # ECS_READY=true plus S3_BUCKET, SECRET_ARN and PUBLIC_BASE_URL; before that it only pushes the image.
     if: github.ref == 'refs/heads/main' && vars.AWS_ROLE_ARN != ''
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -74,9 +75,12 @@ jobs:
           IMAGE=${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
           docker build -t "$IMAGE" backend
           docker push "$IMAGE"
+          docker tag "$IMAGE" ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+          docker push ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
 
       - name: Fill in account-specific values
+        if: vars.ECS_READY == 'true'
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           sed -i \
@@ -87,6 +91,7 @@ jobs:
             ${{ env.TASK_DEFINITION }}
 
       - id: render
+        if: vars.ECS_READY == 'true'
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
           task-definition: ${{ env.TASK_DEFINITION }}
@@ -94,6 +99,7 @@ jobs:
           image: ${{ steps.build.outputs.image }}
 
       - uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        if: vars.ECS_READY == 'true'
         with:
           task-definition: ${{ steps.render.outputs.task-definition }}
           service: ${{ env.ECS_SERVICE }}
@@ -101,4 +107,5 @@ jobs:
           wait-for-service-stability: true
 
       - name: Smoke test the live service
+        if: vars.ECS_READY == 'true'
         run: curl -fsS "${{ vars.PUBLIC_BASE_URL }}/health"
