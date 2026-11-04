@@ -64,6 +64,21 @@ Phone / curl ─► Application Load Balancer ─► ECS Fargate task (Nagrik AP
 
 Checked with the IAM policy simulator: the task role is **denied** reading another bucket, deleting its own bucket and reading the secret; the execution role is **denied** reading photos. An object URL without a signature returns 403.
 
+### Proof (screenshots, 4 November 2026)
+
+The AWS demo ran on 4 November 2026 and everything was deleted the same evening, so these screenshots are the record. All of them are in [`aws/screenshots/`](aws/screenshots/).
+
+| | |
+|---|---|
+| **Green deploy:** tests pass, then deploy ([run](https://github.com/SaiPranav13188/Nagrik/actions/runs/41826471792)) | **Blocked deploy:** a failing test stops the deploy ([run](https://github.com/SaiPranav13188/Nagrik/actions/runs/41825009468)) |
+| ![Green deploy](aws/screenshots/01-cicd-green-deploy.png) | ![Blocked deploy](aws/screenshots/02-cicd-blocked-deploy-test-failed.png) |
+| **ECS service:** 1 task running, deployment succeeded | **Load balancer:** 1 healthy target |
+| ![ECS service](aws/screenshots/13-aws-console-ecs-service-active.png) | ![Load balancer health](aws/screenshots/15-aws-console-load-balancer-healthy.png) |
+| **CPU and memory** for the running service | **IAM policy simulator:** the task role is denied anything outside its own bucket |
+| ![CPU and memory](aws/screenshots/14-aws-console-cpu-memory-graphs.png) | ![IAM least privilege](aws/screenshots/11-iam-least-privilege.png) |
+
+Also in the folder: the live health check, CloudWatch alarms, ECR images, the private encrypted S3 bucket and the task definition revisions used for rollback.
+
 ---
 
 ## Quick start (no accounts or keys needed)
