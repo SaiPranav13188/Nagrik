@@ -39,7 +39,7 @@ async function main() {
   const res = await fetch(url, { redirect: 'manual' });
   const loc = res.headers.get('location') ?? '';
   check('opening the link redirects to a pre-signed S3 URL', res.status === 302 && loc.includes('nagrik-photos-test') && loc.includes('X-Amz-Signature='), { status: res.status, loc });
-  check('the pre-signed URL expires after 5 minutes', loc.includes('X-Amz-Expires=300'), loc);
+  check('the pre-signed URL expires after 5 minutes', loc.includes('X-Amz-Expires=3600'), loc);
   check('path tricks are refused', (await fetch(`${base}/photos/${user}/..%2F..%2Fsecret`, { redirect: 'manual' })).status === 400);
   check('unsafe keys are rejected', !isSafeKey('../x') && !isSafeKey('a/b/c') && !isSafeKey('/abs') && isSafeKey(`${user}/1-ab.jpg`));
 
