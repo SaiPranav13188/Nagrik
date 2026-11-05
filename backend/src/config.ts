@@ -49,6 +49,20 @@ export const config = {
   submissionGraceSeconds: num(process.env.SUBMISSION_GRACE_SECONDS, 15),
   headless: bool(process.env.PLAYWRIGHT_HEADLESS, true),
 
+  // Redis (optional). With REDIS_URL set, filing runs on a BullMQ queue with retries, and the
+  // cache and per-user rate limits are shared and survive restarts. Without it, everything runs
+  // in-process as before (local dev, tests). Supabase stays the source of truth either way.
+  redisUrl: process.env.REDIS_URL || '',
+  /** Prefix for every key Nagrik writes (cache, rate limits, filing guards) and for BullMQ. */
+  redisPrefix: process.env.REDIS_PREFIX || 'nagrik',
+  /** "inline": the API process also runs the filing worker (Render free). "off": run `npm run worker` separately. */
+  filingWorker: (process.env.FILING_WORKER === 'off' ? 'off' : 'inline') as 'inline' | 'off',
+  // Each filing job drives a whole browser, and Render's free instance has 512 MB → one at a time.
+  filingConcurrency: Math.max(1, num(process.env.FILING_CONCURRENCY, 1)),
+  filingMaxAttempts: Math.max(1, num(process.env.FILING_MAX_ATTEMPTS, 5)),
+  /** First retry delay; doubles each time (10 s, 20 s, 40 s, 80 s). */
+  filingBackoffMs: num(process.env.FILING_BACKOFF_MS, 10_000),
+
   // Monitoring
   monitorCron: process.env.MONITOR_CRON || '0 9 * * *',
   recheckIntervalHours: num(process.env.RECHECK_INTERVAL_HOURS, 72),

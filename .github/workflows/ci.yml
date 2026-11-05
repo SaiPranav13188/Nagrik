@@ -14,6 +14,16 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    services:
+      # A real Redis for the queue, retry, idempotency, cache and rate-limit tests.
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     defaults:
       run:
         working-directory: backend
@@ -46,6 +56,11 @@ jobs:
 
       - name: S3 photo storage (mocked S3)
         run: npm run test:s3
+
+      - name: Redis (BullMQ filing queue, retries, double-filing guard, cache, rate limit)
+        env:
+          REDIS_URL: redis://localhost:6379
+        run: npm run test:redis
 
       - name: Tracing wiring (fake Langfuse endpoint)
         run: npm run test:tracing
@@ -80,6 +95,21 @@ jobs:
           curl -fsS localhost:4000/health
           test "$(docker exec nagrik whoami)" = "pwuser"
           docker logs nagrik | tail -20
+      - name: Docker Compose (API + separate filing worker + Redis)
+        working-directory: backend
+        run: |
+          printf 'NODE_ENV=test
+PORTAL_MODE=sandbox
+ENABLE_CRON=false
+' > .env
+          docker compose up -d --build
+          for i in $(seq 1 40); do curl -fsS localhost:4000/health | grep -q '"redis":"ok"' && break; sleep 3; done
+          curl -fsS localhost:4000/health
+          curl -fsS localhost:4000/health | grep -q '"redis":"ok"'
+          docker compose logs worker | grep -q "worker started"
+          docker compose logs api | grep -q "filing worker: off"
+          docker compose logs --tail 20
+          docker compose down -v
 
   gemini-eval:
     if: github.event_name == 'workflow_dispatch' && inputs.gemini_eval

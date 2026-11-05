@@ -1,0 +1,45 @@
+# Nagrik with Redis: the API, a separate filing worker and Redis, from the same image.
+#
+#   docker compose up --build        (needs backend/.env; see .env.example)
+#
+# On Render's free plan the worker runs inside the API instead (FILING_WORKER=inline), because
+# Render has no free background workers. Here they are separate, so a crashing browser in the
+# worker can never take the API down.
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports: ["6379:6379"]
+    volumes: ["redis-data:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    command: ["node", "--import", "tsx", "src/server.ts"]
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379
+      FILING_WORKER: "off" # the worker service below does the filing
+    depends_on:
+      redis: { condition: service_healthy }
+    ports: ["4000:4000"]
+
+  worker:
+    build: .
+    command: ["node", "--import", "tsx", "src/workers/filingWorker.ts"]
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis: { condition: service_healthy }
+    # The worker has no HTTP port, so the image's /health check doesn't apply to it.
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+
+volumes:
+  redis-data:

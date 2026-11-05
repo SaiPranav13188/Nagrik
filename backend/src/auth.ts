@@ -81,6 +81,19 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+/**
+ * For admin pages opened in a browser (the queue dashboard), which can't send a custom header:
+ * also accepts HTTP Basic auth with the admin key as the password (any user name). HTTPS only
+ * in production, as everything else on Render.
+ */
+export function requireAdminBrowser(req: Request, res: Response, next: NextFunction) {
+  const basic = req.headers.authorization?.match(/^Basic\s+(.+)$/i)?.[1];
+  const password = basic ? Buffer.from(basic, 'base64').toString('utf8').split(':').slice(1).join(':') : undefined;
+  if (secretMatches(req.headers['x-admin-key'], config.adminApiKey) || secretMatches(password, config.adminApiKey)) return next();
+  res.set('WWW-Authenticate', 'Basic realm="Nagrik admin", charset="UTF-8"');
+  res.status(401).json({ error: 'Admin key required' });
+}
+
 export function requireCron(req: Request, res: Response, next: NextFunction) {
   const key = req.headers['x-cron-secret'] || req.headers.authorization?.replace(/^Bearer\s+/i, '');
   if (!secretMatches(key, config.cronSecret)) return res.status(401).json({ error: 'Invalid cron secret' });

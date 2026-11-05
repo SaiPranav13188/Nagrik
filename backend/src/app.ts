@@ -12,7 +12,10 @@ import { adminRouter, jobsRouter } from './routes/admin.js';
 import { sandboxPortalRouter } from './sandboxPortal/router.js';
 import { uploadsDir } from './services/storage.js';
 import { isSafeKey, photoUrl, PRESIGN_SECONDS } from './services/s3Photos.js';
-import { queueStats } from './services/scheduler.js';
+import { filingQueueStats, queueStats } from './services/scheduler.js';
+import { redisEnabled, redisHealth } from './redis/connection.js';
+import { requireAdminBrowser } from './auth.js';
+import { queueBoardRouter } from './admin/queueBoard.js';
 import { browserQueueDepth } from './automation/portal.js';
 import { tracingEnabled } from './ai/tracing.js';
 import { safeError } from './services/log.js';
@@ -57,7 +60,8 @@ app.get('/health', async (req, res) => {
     ai: useGemini ? `gemini (${config.geminiModel})` : 'offline-planner',
     portal_mode: config.portalMode,
     tracing: tracingEnabled ? 'langfuse' : 'off',
-    queues: { ...queueStats(), browser: browserQueueDepth() },
+    redis: await redisHealth(),
+    queues: { ...queueStats(), browser: browserQueueDepth(), filing: await filingQueueStats() },
   });
 });
 
@@ -83,6 +87,8 @@ app.use('/complaints', complaintsRouter);
 app.use('/help', helpRouter);
 app.use('/client-errors', clientErrorsRouter);
 app.use('/jobs', jobsRouter);
+// Queue dashboard (Bull Board), only with Redis, behind the admin key (header or browser login).
+if (redisEnabled) app.use('/admin/queues', requireAdminBrowser, queueBoardRouter());
 app.use('/admin', adminRouter);
 app.use('/sandbox-portal', sandboxPortalRouter);
 

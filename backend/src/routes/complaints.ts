@@ -17,6 +17,9 @@ import { citizenStatusChecks, escalationSummary, humanizeLogs } from '../service
 import { findNearby, publicView, supportedSet } from '../services/nearby.js';
 import { notifySupporters, notifyUser } from '../services/notify.js';
 import { enqueueSubmission, holdSubmission, runMonitorSweep, startPipeline } from '../services/scheduler.js';
+import { aiPerMinute, submitPerMinute } from '../redis/rateLimit.js';
+import { redisEnabled } from '../redis/connection.js';
+import { filingStatus } from '../queues/filingQueue.js';
 import { agentActionLimiter } from '../rateLimits.js';
 import { complaintMonitorAgent } from '../agents/monitoring.js';
 import { cancelEscalationDraft, editEscalationDraft, EscalationRefused, sendApprovedEscalation } from '../services/escalations.js';
@@ -115,7 +118,7 @@ const analyzeBody = z.object({
   autoSubmit: z.boolean().optional(),
 });
 
-complaintsRouter.post('/analyze', analyzeLimiter, upload.single('photo'), async (req, res) => {
+complaintsRouter.post('/analyze', analyzeLimiter, aiPerMinute, upload.single('photo'), async (req, res) => {
   const parsed = analyzeBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid request', details: parsed.error.issues });
   const b = parsed.data;
@@ -244,7 +247,7 @@ complaintsRouter.delete('/:id/support', async (req, res) => {
 
 // ───────────── Voice → text (Telugu / Hindi / English) ─────────────
 const transcribeLimiter = rateLimit({ windowMs: 60 * 60 * 1000, limit: 40, keyGenerator: (req) => (req as Request).userId, standardHeaders: true, legacyHeaders: false });
-complaintsRouter.post('/transcribe', transcribeLimiter, async (req, res) => {
+complaintsRouter.post('/transcribe', transcribeLimiter, aiPerMinute, async (req, res) => {
   const b = z
     .object({ audioBase64: z.string().min(100).max(8_000_000), mimeType: z.string().max(40).default('audio/mp4'), lang: z.enum(['en', 'te', 'hi']).default('en') })
     .safeParse(req.body);
@@ -293,11 +296,15 @@ complaintsRouter.post('/transcribe', transcribeLimiter, async (req, res) => {
 
 complaintsRouter.get('/:id/status', async (req, res) => {
   const v = await viewableComplaint(req, res);
-  if (v) res.json(await complaintDetail(v.c, v.role));
+  if (!v) return;
+  const detail = await complaintDetail(v.c, v.role);
+  // With Redis: where filing is (queued, running, waiting to retry, attempts so far).
+  const filing = redisEnabled && v.role === 'owner' ? await filingStatus(v.c.id).catch(() => null) : null;
+  res.json(filing ? { ...detail, filing } : detail);
 });
 
 // ───────────── individual agent triggers (spec endpoints) ─────────────
-complaintsRouter.post('/:id/determine-jurisdiction', agentActionLimiter, async (req, res) => {
+complaintsRouter.post('/:id/determine-jurisdiction', agentActionLimiter, aiPerMinute, async (req, res) => {
   const c = await ownComplaint(req, res);
   if (!c) return;
   if (['submitting', 'submitted', 'escalated', 'resolved'].includes(c.status)) return res.status(409).json({ error: 'Already filed.' });
@@ -305,7 +312,7 @@ complaintsRouter.post('/:id/determine-jurisdiction', agentActionLimiter, async (
   res.json(await complaintDetail((await repo.getComplaint(c.id))!));
 });
 
-complaintsRouter.post('/:id/draft', agentActionLimiter, async (req, res) => {
+complaintsRouter.post('/:id/draft', agentActionLimiter, aiPerMinute, async (req, res) => {
   const c = await ownComplaint(req, res);
   if (!c) return;
   if (['submitting', 'submitted', 'escalated', 'resolved'].includes(c.status)) return res.status(409).json({ error: 'Already filed.' });
@@ -325,7 +332,7 @@ complaintsRouter.patch('/:id/draft', async (req, res) => {
   res.json(await complaintDetail((await repo.getComplaint(c.id))!));
 });
 
-complaintsRouter.post('/:id/submit', agentActionLimiter, async (req, res) => {
+complaintsRouter.post('/:id/submit', agentActionLimiter, submitPerMinute, async (req, res) => {
   const c = await ownComplaint(req, res);
   if (!c) return;
   if (!['drafted', 'submission_failed'].includes(c.status)) return res.status(409).json({ error: `Can't submit while ${c.status}.` });
@@ -343,7 +350,7 @@ complaintsRouter.post('/:id/hold', async (req, res) => {
   res.json(await complaintDetail((await repo.getComplaint(c.id))!));
 });
 
-complaintsRouter.post('/:id/retry', agentActionLimiter, async (req, res) => {
+complaintsRouter.post('/:id/retry', agentActionLimiter, submitPerMinute, async (req, res) => {
   const c = await ownComplaint(req, res);
   if (!c) return;
   if (c.status === 'analyzing' || !c.draft_text || !c.jurisdiction_portal_id) {

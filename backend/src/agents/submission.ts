@@ -7,14 +7,24 @@ import { extractConfirmationDetails, fillAndSubmitForm, getSnapshot } from '../a
 import { photoToTempFile } from '../services/storage.js';
 import { notifySupporters, notifyUser } from '../services/notify.js';
 import type { AgentDefinition } from '../ai/runtime.js';
+import { clearSubmitStarted, markSubmitStarted } from '../services/submitGuard.js';
 
 export interface SubmissionInput {
   complaintId: string;
   /** True only when this run was started by the citizen tapping Submit/Retry. Required for live portals. */
   citizenConfirmed?: boolean;
+  /** False while the filing queue still has retries left: a retryable failure is then not handed back yet. */
+  finalAttempt?: boolean;
 }
 
 export const FAILURE_CATEGORIES = ['captcha', 'otp_gate', 'selector_mismatch', 'portal_error', 'unverified_portal', 'no_form_mapping', 'missing_citizen_details', 'navigation_failed', 'awaiting_confirmation'] as const;
+
+/**
+ * Failures worth retrying with backoff: the portal could not be opened, so nothing was sent.
+ * Everything else is permanent (CAPTCHA, OTP, unapproved portal, missing details) or ambiguous
+ * (portal_error after Submit was pressed — retrying could file twice), so it goes to the citizen.
+ */
+export const RETRYABLE_CATEGORIES = ['navigation_failed'] as const;
 
 export const submissionAgent: AgentDefinition<SubmissionInput> = {
   name: 'submission_agent',
@@ -35,9 +45,12 @@ Every failure hands the complaint back to the citizen with the drafted text and 
     return `Submit complaint_id ${complaintId}.`;
   },
 
-  buildTools(_ctx, { complaintId, citizenConfirmed = false }) {
+  buildTools(_ctx, { complaintId, citizenConfirmed = false, finalAttempt = true }) {
     // Set only by a real successful form submission in this run; mark_submitted requires it.
     let submittedThisRun = false;
+    // What the browser really reported. A retry needs this to say navigation_failed — the model's
+    // own claim is not enough, since a wrong claim after a real submit would file twice.
+    let lastFillOutcome: string | null = null;
     const scrapedTrackingIds = new Set<string>();
     return {
       get_form_selectors: tool({
@@ -81,6 +94,8 @@ Every failure hands the complaint back to the citizen with the drafted text and 
           } catch {
             photoPath = null;
           }
+          // From here until a recorded outcome, a crash leaves this marker behind (see submitGuard.ts).
+          await markSubmitStarted(complaint_id);
           try {
             const r = await fillAndSubmitForm(j.portal_url, j.form_selectors, {
               citizen_name: p?.full_name,
@@ -94,7 +109,10 @@ Every failure hands the complaint back to the citizen with the drafted text and 
               longitude: c.longitude,
               photo_path: photoPath,
             });
+            lastFillOutcome = r.outcome;
             if (r.outcome === 'submitted') submittedThisRun = true;
+            // Nothing reached the portal: the marker isn't needed.
+            if (r.outcome === 'navigation_failed' || r.filledFields.length === 0) await clearSubmitStarted(complaint_id);
             return r;
           } finally {
             if (photoPath) fs.rm(photoPath, () => {});
@@ -143,6 +161,7 @@ Every failure hands the complaint back to the citizen with the drafted text and 
             failure_reason: null,
             portal_status: 'Registered',
           });
+          await clearSubmitStarted(complaint_id);
           await repo.addStatusCheck({ complaint_id, status_found: 'Registered (confirmation page)', source: 'scraped', raw_snapshot: null });
           await notifyUser(
             c.user_id,
@@ -163,6 +182,13 @@ Every failure hands the complaint back to the citizen with the drafted text and 
           reason: z.string().describe('Plain-language explanation for the citizen.'),
         }),
         execute: async ({ complaint_id, category, reason }) => {
+          await clearSubmitStarted(complaint_id); // the outcome is recorded now
+          const browserSaysRetryable = !submittedThisRun && lastFillOutcome !== null && (RETRYABLE_CATEGORIES as readonly string[]).includes(lastFillOutcome);
+          if (!finalAttempt && browserSaysRetryable && (RETRYABLE_CATEGORIES as readonly string[]).includes(category)) {
+            // The queue will try again later: keep it "submitting" and don't message the citizen yet.
+            await repo.updateComplaint(complaint_id, { failure_reason: `[${category}] ${reason}` });
+            return { flagged: true, category, will_retry: true };
+          }
           const c = await repo.updateComplaint(complaint_id, { status: 'submission_failed', failure_reason: `[${category}] ${reason}` });
           await notifyUser(
             c.user_id,

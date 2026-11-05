@@ -203,6 +203,7 @@ npm run test:harness     # Playwright harness vs sandbox portal: fill, submit, t
 npm run test:failures    # 39 failure-mode checks: portal down, CAPTCHA, bad photos, prompt injection, invented departments, security
 npm run test:mcp         # spawns the MCP server over stdio and drives all 7 tools
 npm run test:tracing     # tracing wiring against a fake Langfuse endpoint (no account needed)
+npm run test:redis       # BullMQ filing queue, retries, double-filing guard, cache, rate limit (needs REDIS_URL)
 npm run test:e2e         # full HTTP pipeline (start the server first; see header of scripts/e2e.ts)
 npm run eval:intake      # scores the Intake, Jurisdiction and Drafting agents (see backend/eval/README.md)
 ```
@@ -229,6 +230,50 @@ GitHub Actions runs everything except `test:e2e` on every push and pull request.
 `backend/eval/cases.synthetic.json` holds 40 synthetic, messy complaints: typos, Hinglish, romanised Telugu, vague addresses, out-of-area, not-civic, prompt injection and invented departments. **A human has not reviewed the expected answers yet**, so treat the numbers as provisional. Full results and fixes: [`backend/eval/README.md`](backend/eval/README.md).
 
 EVAL_TABLE_PLACEHOLDER
+
+## Background filing with Redis (BullMQ)
+
+Filing on a portal drives a real browser, so it is slow and can fail for reasons outside our control. With `REDIS_URL` set, it runs on a **BullMQ** queue in Redis instead of an in-process queue. Without `REDIS_URL`, everything runs in-process exactly as before, so local runs and the other tests need no Redis.
+
+```
+Phone ──POST /complaints/:id/submit──► Express API
+                                         │ 1. checks + per-user rate limit (Redis)
+                                         │ 2. add job "file-<complaint id>" (BullMQ)
+                                         ▼
+                              replies 202 straight away
+                                                          Filing worker
+                                                            │ takes the job from Redis
+                                                            │ runs the Submission Agent (Playwright)
+                                                            │ filed → Supabase status "submitted"
+                                                            │ portal unreachable → retry: 10 s, 20 s, 40 s, 80 s
+                                                            ▼
+                                       5 tries failed, or a problem retrying can't fix → handed back to the citizen
+```
+
+| What Redis does | How |
+|---|---|
+| **Job queue** | One job per complaint. The review-window delay is a delayed job, so it survives an API restart (the old timer didn't). |
+| **Retries** | Only when the portal could not be opened, which means nothing was sent. A CAPTCHA, an OTP, an unapproved portal or missing details is handed back at once (`UnrecoverableError`). So is an error *after* Submit was pressed, because retrying that could file twice. The citizen gets one message, not one per try. |
+| **Idempotency** | The job id is `file-<complaint id>`, so a double tap or a retry never makes a second job. The worker also does nothing if the complaint is already `submitted`. |
+| **Double-filing guard** | Before the browser fills the form, the worker writes a marker that it removes once the outcome is recorded. If the process dies in between, the next try finds the marker and asks the citizen to check the portal instead of filing again. Delivery is *at least once*, and this is how a retry is kept from becoming a duplicate. |
+| **Cache** | Address lookups (Nominatim/Photon, 24 h) and admin-approved offices (1 h, cleared when an admin reviews a mapping). Pending or "not found" answers are never cached, and neither is anything the citizen wrote. |
+| **Rate limits** | Per user, shared by every process: 5 submits/retries a minute, 20 AI calls a minute. These sit on top of the existing hourly limits. |
+
+**Supabase stays the source of truth.** Redis holds only temporary data. Render's free Key Value keeps nothing across its own restarts, so on start-up the API re-adds any job Redis has lost, from the complaint statuses in Supabase. If Redis is down, the cache and rate limits are skipped and filing runs in-process. No request waits on a dead Redis: every call checks the connection first and gives up after 5 s.
+
+**Where the worker runs.** With `docker compose up` ([`backend/docker-compose.yml`](backend/docker-compose.yml)), the API, a separate worker and Redis run as three containers. A browser crash in the worker can't take the API down. On Render's free plan there are no background workers, so the worker runs inside the API (`FILING_WORKER=inline`, concurrency 1 for the 512 MB instance). Moving it to a paid worker is one setting: `FILING_WORKER=off` on the API, and `npm run worker` as the worker's command.
+
+**Queue dashboard.** Bull Board at `/admin/queues` shows waiting, active, delayed, failed and completed jobs. It is only mounted with Redis. It needs the admin key: your browser asks for a login, where any user name works and the password is `ADMIN_API_KEY`.
+
+**Tested** (`npm run test:redis`: 29 checks against a real Redis, run in CI with a `redis:7` service):
+- three concurrent submits of the same complaint make exactly 1 job
+- a portal that is down twice, then up, is filed on the 3rd try, and the citizen gets 1 message
+- retries running out hand the complaint back once
+- CAPTCHA and unapproved portals are tried once and never retried
+- a leftover marker makes the next try refuse to file again, and a crash after the form was sent is never retried into a second filing
+- cache hits, TTLs, no caching of `null`, and the office cache cleared on review
+- the 6th submit in a minute gets 429 with `Retry-After`
+- with Redis unreachable, the cache, rate limit, submit, hold and health all fall back within about 0.1 s
 
 ## Tracing (Langfuse)
 
@@ -337,6 +382,9 @@ backend/src
   mcp/           MCP server (7 tools)
   automation/    Playwright harness · CAPTCHA/OTP detection
   db/            Supabase + local repos · Wanaparthy seed
+  queues/        BullMQ filing queue (one job per complaint)
+  workers/       filing worker (inline in the API, or its own process: npm run worker)
+  redis/         connection · cache (getOrSet) · per-user rate limits
   sandboxPortal/ mock municipal grievance portal
   admin/         admin console
 mobile/src

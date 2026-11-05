@@ -6,8 +6,9 @@ import { notifyUser } from '../services/notify.js';
 import { runAgent, type AgentDefinition } from '../ai/runtime.js';
 import { jurisdictionAgent } from './jurisdiction.js';
 import { draftingAgent } from './drafting.js';
-import { submissionAgent } from './submission.js';
+import { RETRYABLE_CATEGORIES, submissionAgent } from './submission.js';
 import { safeError } from '../services/log.js';
+import { clearSubmitStarted, submitStartedEarlier } from '../services/submitGuard.js';
 
 /**
  * The Coordinator decides how a freshly-analyzed complaint moves through the pipeline, calling the
@@ -23,23 +24,63 @@ export const submissionHooks = {
   schedule: (_complaintId: string, _atMs: number) => {},
 };
 
-export async function runSubmission(complaintId: string, citizenConfirmed = false) {
+/**
+ * What one filing attempt ended with. Only "retry" makes the queue try again: the portal could not
+ * even be opened, or something broke before the form was sent, so nothing reached the portal.
+ */
+export type SubmissionOutcome = 'submitted' | 'failed' | 'retry' | 'already_submitted' | 'skipped' | 'verify_first';
+
+const isRetryableReason = (reason: string | null | undefined) => RETRYABLE_CATEGORIES.some((c) => reason?.startsWith(`[${c}]`));
+
+export async function runSubmission(
+  complaintId: string,
+  citizenConfirmed = false,
+  /** finalAttempt: false while the queue still has retries left. fromQueue: the queue's job is the only runner. */
+  opts: { finalAttempt?: boolean; fromQueue?: boolean } = {},
+): Promise<SubmissionOutcome> {
+  const finalAttempt = opts.finalAttempt ?? true;
   const c = await repo.getComplaint(complaintId);
-  if (!c || !['drafted', 'submission_failed'].includes(c.status)) return;
+  if (!c) return 'skipped';
+  if (['submitted', 'escalated', 'resolved'].includes(c.status)) return 'already_submitted';
+  // A queued retry finds the complaint still 'submitting' from its previous attempt.
+  const runnable = opts.fromQueue ? ['drafted', 'submission_failed', 'submitting'] : ['drafted', 'submission_failed'];
+  if (!runnable.includes(c.status)) return 'skipped';
+
+  // An earlier attempt started filling the form and never said how it ended (the process died).
+  // It may already be on the portal: hand it back instead of risking a second filing.
+  if (await submitStartedEarlier(complaintId)) {
+    await repo.updateComplaint(complaintId, {
+      status: 'submission_failed',
+      submit_after: null,
+      failure_reason:
+        '[portal_error] Our last attempt stopped right after sending the form, so it may already be filed. Please check the portal before filing it yourself, so it is not filed twice.',
+    });
+    await clearSubmitStarted(complaintId); // the citizen decides now; their Retry may file again
+    await notifyUser(c.user_id, c.id, 'Please check before re-filing', 'Our last attempt to file your complaint stopped halfway, so it may already be on the portal. Open the app to check before filing it yourself.');
+    return 'verify_first';
+  }
+
   await repo.updateComplaint(complaintId, { status: 'submitting', submit_after: null });
   try {
-    const r = await runAgent(submissionAgent, { complaintId, citizenConfirmed }, { complaintId, userId: c.user_id });
+    const r = await runAgent(submissionAgent, { complaintId, citizenConfirmed, finalAttempt }, { complaintId, userId: c.user_id });
     const after = await repo.getComplaint(complaintId);
+    if (after?.status === 'submitted') return 'submitted';
     if (after?.status === 'submitting') {
+      if (!finalAttempt && isRetryableReason(after.failure_reason)) return 'retry';
       // The agent ended without a terminal decision — never leave a complaint stuck.
       await repo.updateComplaint(complaintId, { status: 'submission_failed', failure_reason: `[portal_error] Automatic filing did not complete. ${r.text}`.trim() });
     }
+    return 'failed';
   } catch (e) {
+    console.error('[submission]', complaintId, safeError(e));
+    // A crash (model or browser error) with retries left: try again. If it happened after the form
+    // was sent, the submit-started marker stops the next attempt from filing twice.
+    if (!finalAttempt) return 'retry';
     await repo.updateComplaint(complaintId, {
       status: 'submission_failed',
       failure_reason: `[portal_error] Something went wrong while filing automatically. Your complaint text is ready to submit yourself.`,
     });
-    console.error('[submission]', complaintId, safeError(e));
+    return 'failed';
   }
 }
 

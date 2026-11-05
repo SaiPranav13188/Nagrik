@@ -6,6 +6,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const TEST_PORT = 4191;
+/** test-redis.ts uses this; every other test runs without Redis, exactly as before. */
+export const TEST_REDIS_URL = process.env.REDIS_URL || '';
 const dir = '.data-test';
 fs.rmSync(path.resolve(dir), { recursive: true, force: true });
 
@@ -28,4 +30,5 @@ Object.assign(process.env, {
   ADMIN_API_KEY: 'test-admin-key-0123456789abcdef',
   CRON_SECRET: 'test-cron-secret-0123456789abcdef',
   LOCAL_AUTH_SECRET: 'test-local-auth-secret-0123456789',
+  REDIS_URL: '', // set (even empty) so backend/.env can't turn Redis on for the offline tests
 });

@@ -6,6 +6,7 @@ import { repo } from '../db/index.js';
 import { ISSUE_TYPES, type Complaint, type IssueType, type Jurisdiction } from '../db/types.js';
 import { noteGeminiError, textModel, type AgentDefinition } from '../ai/runtime.js';
 import { inferPlace } from '../services/citizenText.js';
+import { getOrSet } from '../redis/cache.js';
 
 export interface JurisdictionInput {
   complaint: Complaint;
@@ -33,6 +34,20 @@ function summarize(j: Jurisdiction) {
     notes: j.notes,
   };
 }
+
+/**
+ * Admin-approved offices for a city + issue type, cached in Redis for an hour (cleared whenever an
+ * admin reviews a mapping). Only approved mappings are cached: pending proposals still need human
+ * review, and an empty answer is not cached, so a newly approved office shows up straight away.
+ */
+export async function approvedOffices(q: { city: string; state?: string; issueType: IssueType; sandbox: boolean }): Promise<Jurisdiction[]> {
+  const id = [q.sandbox ? 'sandbox' : 'live', q.issueType, q.state ?? '', q.city].map((p) => p.toLowerCase().trim()).join('|');
+  return (await getOrSet<Jurisdiction[]>(OFFICE_CACHE, id, 3600, async () => {
+    const found = await repo.findJurisdictions({ ...q, reviewStatuses: ['approved'] });
+    return found.length ? found : null;
+  })) ?? [];
+}
+export const OFFICE_CACHE = 'office';
 
 export const jurisdictionAgent: AgentDefinition<JurisdictionInput> = {
   name: 'jurisdiction_agent',
@@ -73,11 +88,11 @@ Portal mode: ${config.portalMode}`;
           const reviewer = config.reviewEmails.includes((await repo.getProfile(complaint.user_id))?.email?.toLowerCase() ?? '');
           const sandbox = config.portalMode === 'sandbox' || reviewer;
           const q = { city, state: state ?? undefined, issueType: issue_type as IssueType, sandbox };
-          let approved = await repo.findJurisdictions({ ...q, reviewStatuses: ['approved'] });
+          let approved = await approvedOffices(q);
           const pending = await repo.findJurisdictions({ ...q, reviewStatuses: ['pending'] });
           let note: string | undefined;
           if (!approved.length && sandbox && config.sandboxMatchAnyCity) {
-            approved = await repo.findJurisdictions({ ...q, city: 'Wanaparthy', state: 'Telangana', reviewStatuses: ['approved'] });
+            approved = await approvedOffices({ ...q, city: 'Wanaparthy', state: 'Telangana' });
             if (approved.length) note = `No mapping for ${city}; SANDBOX mode routes to the Wanaparthy sandbox portal for testing.`;
           }
           return {

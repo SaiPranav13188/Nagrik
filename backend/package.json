@@ -16,7 +16,9 @@
     "mcp:login": "tsx scripts/mcp-login.ts",
     "test:mcp": "tsx scripts/test-mcp.ts",
     "test:tracing": "tsx scripts/test-tracing.ts",
-    "test:s3": "tsx scripts/test-s3.ts"
+    "test:s3": "tsx scripts/test-s3.ts",
+    "worker": "tsx src/workers/filingWorker.ts",
+    "test:redis": "tsx scripts/test-redis.ts"
   },
   "type": "module",
   "dependencies": {
@@ -24,6 +26,8 @@
     "@ai-sdk/provider": "^4.0.19",
     "@aws-sdk/client-s3": "^3.1161.0",
     "@aws-sdk/s3-request-presigner": "^3.1161.0",
+    "@bull-board/api": "^9.11.0",
+    "@bull-board/express": "^9.11.0",
     "@langfuse/otel": "5.13.1",
     "@langfuse/tracing": "5.13.1",
     "@modelcontextprotocol/sdk": "^1.32.1",
@@ -35,11 +39,13 @@
     "@opentelemetry/sdk-trace-node": "2.12.0",
     "@supabase/supabase-js": "^2.117.2",
     "ai": "^7.0.122",
+    "bullmq": "^6.7.0",
     "cors": "^2.8.6",
     "dotenv": "^18.0.4",
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.0",
     "helmet": "^8.3.0",
+    "ioredis": "^6.0.0",
     "multer": "^2.4.0",
     "node-cron": "^4.6.0",
     "playwright": "^1.63.0",

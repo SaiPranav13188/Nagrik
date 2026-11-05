@@ -5,6 +5,8 @@ import { runAgent } from '../ai/runtime.js';
 import { coordinatorAgent, runSubmission, submissionHooks } from '../agents/coordinator.js';
 import { monitorSupervisorAgent } from '../agents/monitoring.js';
 import { safeError } from './log.js';
+import { redisEnabled } from '../redis/connection.js';
+import { cancelFiling, enqueueFiling, filingCounts, getFilingJob } from '../queues/filingQueue.js';
 
 /** Minimal in-process task queue with a concurrency cap. */
 class TaskQueue {
@@ -37,29 +39,71 @@ export function queueStats() {
 }
 
 export function scheduleSubmission(complaintId: string, atMs: number) {
-  clearTimeout(timers.get(complaintId));
   const delay = Math.max(0, atMs - Date.now());
+  if (redisEnabled) {
+    // A delayed BullMQ job replaces the in-memory timer: it survives restarts of the API process.
+    enqueueFiling(complaintId, { delayMs: delay }).catch((e) => {
+      console.error('[queue] could not schedule filing, using an in-memory timer:', safeError(e));
+      scheduleInMemory(complaintId, delay);
+    });
+    return;
+  }
+  scheduleInMemory(complaintId, delay);
+}
+submissionHooks.schedule = scheduleSubmission;
+
+function scheduleInMemory(complaintId: string, delay: number) {
+  clearTimeout(timers.get(complaintId));
   timers.set(
     complaintId,
     setTimeout(() => {
       timers.delete(complaintId);
-      void enqueueSubmission(complaintId);
+      void runInMemory(complaintId, false);
     }, delay),
   );
 }
-submissionHooks.schedule = scheduleSubmission;
 
-/** citizenConfirmed: the citizen tapped Submit/Retry. Timers and boot recovery never set it. */
-export function enqueueSubmission(complaintId: string, citizenConfirmed = false) {
+/**
+ * citizenConfirmed: the citizen tapped Submit/Retry. Timers and boot recovery never set it.
+ * With Redis the job goes to the filing queue (retries, one job per complaint); if Redis can't
+ * take it right now, it runs in-process as before so the citizen is never left waiting.
+ */
+export async function enqueueSubmission(complaintId: string, citizenConfirmed = false) {
+  if (redisEnabled) {
+    try {
+      await enqueueFiling(complaintId, { citizenConfirmed });
+      return;
+    } catch (e) {
+      console.error('[queue] Redis unavailable, filing in-process instead:', safeError(e));
+    }
+  }
+  await runInMemory(complaintId, citizenConfirmed);
+}
+
+function runInMemory(complaintId: string, citizenConfirmed: boolean) {
   if (inFlight.has(complaintId)) return Promise.resolve();
   inFlight.add(complaintId);
-  return submissionQueue.run(() => runSubmission(complaintId, citizenConfirmed)).finally(() => inFlight.delete(complaintId));
+  return submissionQueue
+    .run(() => runSubmission(complaintId, citizenConfirmed))
+    .then(() => {})
+    .finally(() => inFlight.delete(complaintId));
 }
 
 export async function holdSubmission(complaintId: string) {
   clearTimeout(timers.get(complaintId));
   timers.delete(complaintId);
+  if (redisEnabled) await cancelFiling(complaintId).catch((e) => console.error('[queue] could not cancel filing:', safeError(e)));
   await repo.updateComplaint(complaintId, { submit_after: null });
+}
+
+/** Queue numbers for /health. */
+export async function filingQueueStats() {
+  if (!redisEnabled) return { backend: 'memory' as const };
+  try {
+    return { backend: 'redis' as const, ...(await filingCounts()) };
+  } catch (e) {
+    return { backend: 'redis' as const, error: (e as Error).message };
+  }
 }
 
 export function startPipeline(complaintId: string, userId: string) {
@@ -89,18 +133,35 @@ export function runMonitorSweep(opts: { force?: boolean; complaintId?: string } 
   return p;
 }
 
-/** Re-arm work that was in progress when the process restarted. */
+/**
+ * Re-arm work that was in progress when the process restarted. Supabase is the source of truth:
+ * with Redis, a job that is still in the queue is left to BullMQ (it re-runs stalled jobs itself);
+ * a job Redis lost (the free Key Value keeps nothing across its own restarts) is added again.
+ */
 export async function recoverOnBoot() {
   const drafted = await repo.listComplaintsByStatus(['drafted', 'submitting', 'analyzing']);
   for (const c of drafted) {
+    if (c.status === 'analyzing') {
+      void startPipeline(c.id, c.user_id);
+      continue;
+    }
+    if (redisEnabled && (await queuedJobExists(c.id))) continue;
     if (c.status === 'submitting') {
       await repo.updateComplaint(c.id, { status: 'drafted', submit_after: new Date().toISOString() });
       scheduleSubmission(c.id, Date.now() + 2000);
     } else if (c.status === 'drafted' && c.submit_after) {
       scheduleSubmission(c.id, new Date(c.submit_after).getTime());
-    } else if (c.status === 'analyzing') {
-      void startPipeline(c.id, c.user_id);
     }
+  }
+}
+
+async function queuedJobExists(complaintId: string) {
+  try {
+    const job = await getFilingJob(complaintId);
+    if (!job) return false;
+    return !['completed', 'failed', 'unknown'].includes(await job.getState());
+  } catch {
+    return false;
   }
 }
 

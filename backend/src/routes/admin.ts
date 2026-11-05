@@ -5,7 +5,9 @@ import express, { Router } from 'express';
 import { z } from 'zod';
 import { repo } from '../db/index.js';
 import { requireAdmin, requireCron } from '../auth.js';
-import { runMonitorSweep } from '../services/scheduler.js';
+import { cacheStats, clearCache } from '../redis/cache.js';
+import { OFFICE_CACHE } from '../agents/jurisdiction.js';
+import { filingQueueStats, runMonitorSweep } from '../services/scheduler.js';
 import { sandboxAdminRouter } from '../sandboxPortal/router.js';
 import { safeError } from '../services/log.js';
 
@@ -77,6 +79,8 @@ adminRouter.post('/jurisdiction/review', requireAdmin, async (req, res) => {
     reviewed_at: new Date().toISOString(),
     review_comment: comment ?? null,
   });
+  // Approved offices are cached; drop them so the change applies to the next complaint.
+  await clearCache(OFFICE_CACHE);
   await repo.addToolLog({
     agent_name: 'admin',
     complaint_id: null,
@@ -126,6 +130,9 @@ adminRouter.get('/stats', requireAdmin, async (_req, res) => {
     manual_fallback_reasons: fallbackReasons,
     complaints_by_status: statuses,
     pending_jurisdictions: (await repo.listJurisdictions('pending')).length,
+    // Redis: cache hits/misses since this process started, and the filing queue's job counts.
+    cache: cacheStats,
+    filing_queue: await filingQueueStats(),
   });
 });
 

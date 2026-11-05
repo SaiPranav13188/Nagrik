@@ -28,6 +28,15 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    services:
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     defaults:
       run:
         working-directory: backend
@@ -45,6 +54,10 @@ jobs:
         run: npm run test:failures
       - name: S3 photo storage (mocked S3)
         run: npm run test:s3
+      - name: Redis (filing queue, retries, cache, rate limit)
+        env:
+          REDIS_URL: redis://localhost:6379
+        run: npm run test:redis
       - name: Agent eval (fails on regression)
         run: npm run eval:intake -- --offline --check
       - name: Help assistant eval (every case must pass)

@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { getOrSet } from '../redis/cache.js';
 
 export interface GeocodeResult {
   address: string;
@@ -20,13 +21,17 @@ export async function reverseGeocode(lat: number, lng: number): Promise<GeocodeR
   const key = `${lat.toFixed(5)},${lng.toFixed(5)}`;
   const hit = cache.get(key);
   if (hit) return hit;
-  let result: GeocodeResult;
-  try {
-    result = await nominatim(lat, lng);
-  } catch (e) {
-    console.warn(`[geocode] Nominatim failed (${(e as Error).message}), using Photon`);
-    result = await photon(lat, lng);
-  }
+  // Shared Redis cache (24 h): the app looks the address up while the citizen fills the form and
+  // again when the photo is analyzed, so the second call never reaches Nominatim/Photon.
+  // An address is public map data, not anything the citizen wrote.
+  const result = (await getOrSet<GeocodeResult>('geocode', key, 24 * 3600, async () => {
+    try {
+      return await nominatim(lat, lng);
+    } catch (e) {
+      console.warn(`[geocode] Nominatim failed (${(e as Error).message}), using Photon`);
+      return await photon(lat, lng);
+    }
+  }))!;
   cache.set(key, result);
   if (cache.size > 5000) cache.clear();
   return result;

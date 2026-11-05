@@ -5,6 +5,7 @@ import { repo } from '../db/index.js';
 import { requireUser } from '../auth.js';
 import { answerHelp } from '../services/help.js';
 import { TOPIC_IDS } from '../services/helpAnswers.js';
+import { aiPerMinute } from '../redis/rateLimit.js';
 
 /** In-app help assistant: see services/help.ts for how answers are chosen. */
 export const helpRouter = Router();
@@ -32,7 +33,7 @@ const chatBody = z.object({
   complaintId: z.string().uuid().optional(),
 });
 
-helpRouter.post('/chat', perUser(40, "You've asked a lot of questions in the last hour. Please try again later, or email support."), async (req, res) => {
+helpRouter.post('/chat', perUser(40, "You've asked a lot of questions in the last hour. Please try again later, or email support."), aiPerMinute, async (req, res) => {
   const body = chatBody.safeParse(req.body);
   if (!body.success) return res.status(400).json({ error: body.error.issues[0]?.message ?? 'Invalid request' });
   res.json(await answerHelp({ userId: req.userId, ...body.data }));
