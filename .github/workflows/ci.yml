@@ -98,10 +98,7 @@ jobs:
       - name: Docker Compose (API + separate filing worker + Redis)
         working-directory: backend
         run: |
-          printf 'NODE_ENV=test
-PORTAL_MODE=sandbox
-ENABLE_CRON=false
-' > .env
+          printf 'NODE_ENV=test\nPORTAL_MODE=sandbox\nENABLE_CRON=false\n' > .env
           docker compose up -d --build
           for i in $(seq 1 40); do curl -fsS localhost:4000/health | grep -q '"redis":"ok"' && break; sleep 3; done
           curl -fsS localhost:4000/health
