@@ -172,8 +172,8 @@ async function main() {
   const mid = await until(() => get(flaky.id), (x) => x.status === 'submitting' && x.failure_reason?.startsWith('[navigation_failed]') === true, 30_000);
   check('between tries the complaint stays "submitting" (no failure shown yet)', mid.status === 'submitting', { status: mid.status, reason: mid.failure_reason });
   c = await until(() => get(flaky.id), (x) => x.status === 'submitted' || x.status === 'submission_failed', 90_000);
-  job = await getFilingJob(flaky.id);
-  check('portal down twice, then up → filed on the 3rd attempt', c.status === 'submitted' && job?.attemptsMade === 2 && grievances() === g2 + 1, { status: c.status, attemptsMade: job?.attemptsMade, hits: flakyHits, reason: c.failure_reason });
+  job = await until(() => getFilingJob(flaky.id), async (j) => !!j && (await j.getState()) === 'completed', 10_000);
+  check('portal down twice, then up → filed on the 3rd attempt', c.status === 'submitted' && job?.attemptsStarted === 3 && flakyHits === 3 && grievances() === g2 + 1, { status: c.status, attemptsStarted: job?.attemptsStarted, hits: flakyHits, reason: c.failure_reason });
   const fn = await notificationsFor(flaky.id);
   check('citizen gets ONE message ("filed"), none for the retried attempts', fn.length === 1 && /filed/i.test(fn[0].title), fn.map((n) => n.title));
 
