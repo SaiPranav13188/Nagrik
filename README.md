@@ -263,7 +263,7 @@ Phone ──POST /complaints/:id/submit──► Express API
 
 **Where the worker runs.** With `docker compose up` ([`backend/docker-compose.yml`](backend/docker-compose.yml)), the API, a separate worker and Redis run as three containers. A browser crash in the worker can't take the API down. On Render's free plan there are no background workers, so the worker runs inside the API (`FILING_WORKER=inline`, concurrency 1 for the 512 MB instance). Moving it to a paid worker is one setting: `FILING_WORKER=off` on the API, and `npm run worker` as the worker's command.
 
-**Queue dashboard.** Bull Board at `/admin/queues` shows waiting, active, delayed, failed and completed jobs. It is only mounted with Redis. It needs the admin key: your browser asks for a login, where any user name works and the password is `ADMIN_API_KEY`.
+**Queue dashboard.** Bull Board at `/admin/queues` (live: https://nagrik-backend-uopu.onrender.com/admin/queues) shows waiting, active, delayed, failed and completed jobs. It is only mounted with Redis. It needs the admin key: your browser asks for a login, where any user name works and the password is `ADMIN_API_KEY`.
 
 **Tested** (`npm run test:redis`: 29 checks against a real Redis, run in CI with a `redis:7` service):
 - three concurrent submits of the same complaint make exactly 1 job
