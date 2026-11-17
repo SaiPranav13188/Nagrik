@@ -68,6 +68,8 @@ async function appendPhoto(form: FormData, uri: string) {
 
 export const api = {
   health: () => request<{ ok: boolean; ai: string; portal_mode: string; auth: string }>('/health', { auth: false, timeoutMs: 6000 }),
+  // Long timeout: the free server may be waking up.
+  startDemo: () => request<{ mode: 'supabase'; email: string; password: string } | { mode: 'local'; token: string }>('/auth/demo', { method: 'POST', auth: false, timeoutMs: 90000 }),
   localSignIn: (deviceId: string) => request<{ token: string; userId: string; profile: Profile }>('/auth/local', { method: 'POST', body: { deviceId }, auth: false }),
 
   // Long timeout: the first request after the server sleeps can take ~60s to wake it.

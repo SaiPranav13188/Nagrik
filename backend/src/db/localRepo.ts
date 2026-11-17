@@ -247,8 +247,8 @@ export class LocalRepo implements Repo {
       .slice(0, limit);
   }
 
-  async addStatusCheck(s: Omit<StatusCheck, 'id' | 'checked_at'>) {
-    const row: StatusCheck = { ...s, id: randomUUID(), checked_at: now() };
+  async addStatusCheck(s: Omit<StatusCheck, 'id' | 'checked_at'> & { checked_at?: string }) {
+    const row: StatusCheck = { ...s, id: randomUUID(), checked_at: s.checked_at ?? now() };
     this.data.complaint_status_checks.push(row);
     this.persist();
     return row;
@@ -304,8 +304,8 @@ export class LocalRepo implements Repo {
     this.persist();
   }
 
-  async addToolLog(l: Omit<ToolLog, 'id' | 'created_at'>) {
-    this.data.agent_tool_logs.push({ ...l, id: randomUUID(), created_at: now() });
+  async addToolLog(l: Omit<ToolLog, 'id' | 'created_at'> & { created_at?: string }) {
+    this.data.agent_tool_logs.push({ ...l, id: randomUUID(), created_at: l.created_at ?? now() });
     // Keep the local file bounded.
     if (this.data.agent_tool_logs.length > 20000) this.data.agent_tool_logs.splice(0, 5000);
     this.persist();

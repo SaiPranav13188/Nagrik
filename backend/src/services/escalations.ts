@@ -1,6 +1,7 @@
 import { config } from '../config.js';
 import { repo } from '../db/index.js';
 import type { Complaint } from '../db/types.js';
+import { isDemoEmail } from './demo.js';
 import { sendEscalationEmail } from './notify.js';
 
 /**
@@ -49,7 +50,10 @@ export async function sendApprovedEscalation(opts: { complaint: Complaint; escal
   try {
     const approvedAt = new Date().toISOString();
     const p = await repo.getProfile(c.user_id);
-    const r = await sendEscalationEmail({ to: step.contact, subject: e.subject!, text: e.body!, replyTo: p?.email, sandbox: j.is_sandbox });
+    // Demo accounts never send a real email, not even to the sandbox inbox.
+    const r = isDemoEmail(p?.email)
+      ? { delivered: true, mode: 'demo_simulated', detail: 'Demo: escalation recorded, no email sent.', recipient: step.contact }
+      : await sendEscalationEmail({ to: step.contact, subject: e.subject!, text: e.body!, replyTo: p?.email, sandbox: j.is_sandbox });
     const updated = await repo.updateEscalation(e.id, {
       recipient: r.recipient,
       approved_by: userId,

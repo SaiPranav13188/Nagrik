@@ -6,6 +6,9 @@ Take a photo of a civic problem. AI agents classify it, work out which governmen
 
 Seeded for **Wanaparthy (PIN 509103), Telangana**. The app is in English, Telugu and Hindi.
 
+> **[Try the live demo](https://saipranav13188.github.io/Nagrik/demo/)** in your browser, no sign-up and nothing to install.
+> You get your own sample account with complaints at every stage. Everything goes to a practice copy of the portal, never to a real office, and the account is deleted after 24 hours.
+
 ```
  Expo app ──► Express API ──► Coordinator agent
  (photo, GPS)                    ├─ Intake agent        Gemini vision · Nominatim
@@ -166,6 +169,7 @@ Seeded mappings are in `backend/src/db/seed.ts`, with sources:
 | Citizen text can't steer the agents | Notes and addresses are cleaned of instruction-like text (`services/citizenText.ts`) and marked as untrusted data in every prompt. The tool checks above hold even if a model is fooled. |
 | The server only fetches photos it stored itself | `photoUrl` must be the signed-in user's own upload (blocks SSRF) |
 | Only one browser session runs at a time | A single-slot queue in `automation/portal.ts` |
+| Web demo accounts never reach a real office or a real resident | `services/demo.ts`: always routed to the sandbox portal (also re-checked in `assign_jurisdiction`), escalation emails only simulated, "Me too" on real complaints refused, demo complaints hidden from real residents' map, accounts deleted after 24 hours |
 
 ---
 
@@ -200,7 +204,7 @@ Seeded mappings are in `backend/src/db/seed.ts`, with sources:
 ```bash
 cd backend
 npm run test:harness     # Playwright harness vs sandbox portal: fill, submit, tracking ID, status, CAPTCHA, broken selector
-npm run test:failures    # 39 failure-mode checks: portal down, CAPTCHA, bad photos, prompt injection, invented departments, security
+npm run test:failures    # 47 failure-mode checks: portal down, CAPTCHA, bad photos, prompt injection, invented departments, security
 npm run test:mcp         # spawns the MCP server over stdio and drives all 7 tools
 npm run test:tracing     # tracing wiring against a fake Langfuse endpoint (no account needed)
 npm run test:redis       # BullMQ filing queue, retries, double-filing guard, cache, rate limit (needs REDIS_URL)

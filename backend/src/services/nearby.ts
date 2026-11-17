@@ -1,5 +1,6 @@
 import { repo } from '../db/index.js';
 import type { Complaint, IssueType } from '../db/types.js';
+import { isDemoUser } from './demo.js';
 
 export function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: number) {
   const R = 6371000;
@@ -17,13 +18,28 @@ export async function findNearby(
   lat: number,
   lng: number,
   radiusM: number,
-  opts: { issueType?: IssueType; openOnly?: boolean; limit?: number } = {},
+  opts: {
+    issueType?: IssueType;
+    openOnly?: boolean;
+    limit?: number;
+    /** Who is asking. Demo accounts' complaints are only ever shown to their owner. */
+    viewerId?: string;
+    /** Duplicate check: a demo viewer only matches their own complaints (they can't join a real one). */
+    demoViewerOwnOnly?: boolean;
+  } = {},
 ) {
   const dLat = radiusM / 111_320;
   const dLng = radiusM / (111_320 * Math.max(Math.cos((lat * Math.PI) / 180), 0.2));
   const rows = await repo.listComplaintsInBox({ minLat: lat - dLat, maxLat: lat + dLat, minLng: lng - dLng, maxLng: lng + dLng }, 500);
   const recentResolved = Date.now() - 30 * 86_400_000;
-  return rows
+  const viewerIsDemo = opts.viewerId ? await isDemoUser(opts.viewerId) : false;
+  const visible: Complaint[] = [];
+  for (const c of rows) {
+    if (c.user_id === opts.viewerId) visible.push(c);
+    else if (viewerIsDemo && opts.demoViewerOwnOnly) continue;
+    else if (!(await isDemoUser(c.user_id))) visible.push(c);
+  }
+  return visible
     .filter((c) => c.status !== 'analyzing')
     .filter((c) => (opts.openOnly ? OPEN.has(c.status) : OPEN.has(c.status) || (c.status === 'resolved' && new Date(c.resolved_at ?? c.updated_at).getTime() > recentResolved)))
     .filter((c) => !opts.issueType || c.issue_type === opts.issueType)

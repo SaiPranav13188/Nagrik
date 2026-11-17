@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Linking, Pressable, RefreshControl, ScrollView, Share, View } from 'react-native';
+import { Linking, Pressable, RefreshControl, ScrollView, Share, View } from 'react-native';
+import { Alert } from '../../lib/alert';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';

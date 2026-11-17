@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, Switch, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, ScrollView, Switch, View } from 'react-native';
+import { Alert } from '../../lib/alert';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';

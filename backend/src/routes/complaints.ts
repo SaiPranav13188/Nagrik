@@ -15,6 +15,7 @@ import { isOwnPhotoUrl, savePhoto } from '../services/storage.js';
 import { reverseGeocode } from '../services/geocode.js';
 import { citizenStatusChecks, escalationSummary, humanizeLogs } from '../services/activity.js';
 import { findNearby, publicView, supportedSet } from '../services/nearby.js';
+import { isDemoUser } from '../services/demo.js';
 import { notifySupporters, notifyUser } from '../services/notify.js';
 import { enqueueSubmission, holdSubmission, runMonitorSweep, startPipeline } from '../services/scheduler.js';
 import { aiPerMinute, submitPerMinute } from '../redis/rateLimit.js';
@@ -217,7 +218,7 @@ complaintsRouter.get('/nearby', async (req, res) => {
     .object({ lat: z.coerce.number().min(-90).max(90), lng: z.coerce.number().min(-180).max(180), radius: z.coerce.number().min(100).max(10000).default(3000) })
     .safeParse(req.query);
   if (!q.success) return res.status(400).json({ error: 'lat and lng required' });
-  const hits = await findNearby(q.data.lat, q.data.lng, q.data.radius, { limit: 200 });
+  const hits = await findNearby(q.data.lat, q.data.lng, q.data.radius, { limit: 200, viewerId: req.userId });
   const supported = await supportedSet(req.userId);
   res.json({ items: hits.map(({ c, distance }) => publicView(c, { userId: req.userId, supported }, distance)) });
 });
@@ -228,6 +229,8 @@ complaintsRouter.post('/:id/support', agentActionLimiter, async (req, res) => {
   const c = await repo.getComplaint(String(req.params.id));
   if (!c || c.status === 'analyzing') return res.status(404).json({ error: 'Complaint not found' });
   if (c.user_id === req.userId) return res.status(409).json({ error: 'You reported this one yourself.' });
+  // A demo visitor must not notify a real resident that "a neighbour joined" their complaint.
+  if (await isDemoUser(req.userId)) return res.status(403).json({ error: '"Me too" is turned off in the demo, so real residents are not notified.' });
   const added = await repo.addSupporter(c.id, req.userId);
   const updated = (await repo.getComplaint(c.id))!;
   if (added && SUPPORT_MILESTONES.has(updated.supporters_count)) {

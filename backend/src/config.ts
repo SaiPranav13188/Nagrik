@@ -46,6 +46,8 @@ export const config = {
   sandboxMatchAnyCity: bool(process.env.SANDBOX_MATCH_ANY_CITY, true),
   /** Store-review test accounts (comma-separated emails): always routed to the sandbox portal. */
   reviewEmails: (process.env.REVIEW_EMAILS ?? '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean),
+  /** Where the demo's sample complaint photos are hosted (the GitHub Pages demo site). */
+  demoPhotoBaseUrl: (process.env.DEMO_PHOTO_BASE_URL || 'https://saipranav13188.github.io/Nagrik/demo/samples').replace(/\/$/, ''),
   submissionGraceSeconds: num(process.env.SUBMISSION_GRACE_SECONDS, 15),
   headless: bool(process.env.PLAYWRIGHT_HEADLESS, true),
 

@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button, Card, EmptyState, SectionTitle, Skeleton, Text } from '../../components/ui';
 import { ComplaintCard } from '../../components/complaint';
 import { api, errorMessage } from '../../lib/api';
-import { onboardingFlags, useAuth } from '../../lib/auth';
+import { isDemoProfile, onboardingFlags, useAuth } from '../../lib/auth';
 import { useI18n } from '../../lib/i18n';
 import { IN_PROGRESS, needsUser } from '../../lib/format';
 import { useApi } from '../../lib/useApi';
@@ -23,6 +23,7 @@ export default function Home() {
   const list = useApi(() => api.complaints().then((r) => r.complaints));
   const notes = useApi(() => api.notifications(), { pollMs: 30000 });
   const health = useApi(() => api.health());
+  const demo = isDemoProfile(profile);
   const testMode = health.data?.portal_mode === 'sandbox';
   const complaints = useMemo(() => list.data ?? [], [list.data]);
   const live = complaints.some((x) => IN_PROGRESS.includes(x.status));
@@ -82,10 +83,10 @@ export default function Home() {
           </Pressable>
         </View>
         {/* Store listing and testers must not think complaints reach real offices while in sandbox mode. */}
-        {testMode && (
+        {(testMode || demo) && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: space(2), marginTop: space(3), paddingHorizontal: space(3), paddingVertical: space(2), borderRadius: radius.md, backgroundColor: 'rgba(255,255,255,0.16)' }}>
             <Ionicons name="flask-outline" size={16} color="#fff" />
-            <Text variant="small" color="#fff" style={{ flex: 1 }}>{t('testModeBanner')}</Text>
+            <Text variant="small" color="#fff" style={{ flex: 1 }}>{demo ? t('demoBanner') : t('testModeBanner')}</Text>
           </View>
         )}
       </LinearGradient>

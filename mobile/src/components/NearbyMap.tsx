@@ -1,4 +1,4 @@
-import React, { useEffect, useImperativeHandle, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import { Platform, View } from 'react-native';
 import { useTheme } from '../theme';
 import { statusStyle } from '../lib/format';
@@ -110,9 +110,7 @@ window.render=function(d){layer.clearLayers();last=d.pins;d.pins.forEach(functio
     run(`window.render(${payload})`);
   }, [payload]);
 
-  if (Platform.OS === 'web') {
-    return <View style={{ flex: 1 }} />;
-  }
+  if (Platform.OS === 'web') return <WebMap html={html} payload={payload} handleRef={web} loadedRef={loaded} onSelect={onSelect} bg={c.surfaceAlt} />;
   // Loaded lazily so the web build never imports the native WebView.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { WebView } = require('react-native-webview') as typeof import('react-native-webview');
@@ -132,6 +130,55 @@ window.render=function(d){layer.clearLayers();last=d.pins;d.pins.forEach(functio
         setSupportMultipleWindows={false}
         style={{ backgroundColor: 'transparent' }}
       />
+    </View>
+  );
+}
+
+/**
+ * Browser demo: the same Leaflet page in an iframe. A small shim gives it the WebView's
+ * postMessage bridge, and injectJavaScript runs code in the frame (same origin via srcDoc).
+ */
+function WebMap({
+  html,
+  payload,
+  handleRef,
+  loadedRef,
+  onSelect,
+  bg,
+}: {
+  html: string;
+  payload: string;
+  handleRef: React.RefObject<any>;
+  loadedRef: React.RefObject<boolean>;
+  onSelect: (id: string) => void;
+  bg: string;
+}) {
+  const frame = useRef<HTMLIFrameElement | null>(null);
+  const doc = useMemo(
+    () => html.replace('<body>', `<body><script>window.ReactNativeWebView={postMessage:function(m){parent.postMessage({nagrikMap:m},'*')}};</script>`),
+    [html],
+  );
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (e.source === frame.current?.contentWindow && typeof e.data?.nagrikMap === 'string') onSelect(e.data.nagrikMap);
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [onSelect]);
+  const setFrame = useCallback(
+    (el: HTMLIFrameElement | null) => {
+      frame.current = el;
+      handleRef.current = { injectJavaScript: (js: string) => (el?.contentWindow as (Window & { eval(s: string): unknown }) | null)?.eval(js) };
+    },
+    [handleRef],
+  );
+  const onLoad = useCallback(() => {
+    loadedRef.current = true;
+    handleRef.current?.injectJavaScript(`window.render(${payload});true;`);
+  }, [handleRef, loadedRef, payload]);
+  return (
+    <View style={{ flex: 1, backgroundColor: bg }}>
+      <iframe ref={setFrame} srcDoc={doc} title="Map of nearby complaints" style={{ border: 0, width: '100%', height: '100%' }} onLoad={onLoad} />
     </View>
   );
 }

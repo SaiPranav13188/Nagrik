@@ -12,6 +12,7 @@ import { NearbyMap, type NearbyMapHandle } from '../../components/NearbyMap';
 import { Sheet } from '../../components/Sheet';
 import { useToast } from '../../components/Toast';
 import { api, errorMessage } from '../../lib/api';
+import { isDemoProfile, useAuth } from '../../lib/auth';
 import { resolveMediaUrl } from '../../lib/config';
 import { issueMeta, statusStyle } from '../../lib/format';
 import { useI18n, type TKey } from '../../lib/i18n';
@@ -19,6 +20,8 @@ import type { IssueType, NearbyItem } from '../../lib/types';
 import { radius, space, useTheme } from '../../theme';
 
 const RADIUS_M = 3000;
+/** Demo accounts' sample complaints are in Wanaparthy, wherever the visitor is. */
+const DEMO_CENTER = { latitude: 16.3625, longitude: 78.0605 };
 
 export default function Nearby() {
   const { c } = useTheme();
@@ -35,6 +38,7 @@ export default function Nearby() {
   const [view, setView] = useState<'map' | 'list'>('map');
   const [filter, setFilter] = useState<IssueType | null>(null);
   const mapRef = useRef<NearbyMapHandle>(null);
+  const demo = isDemoProfile(useAuth().profile);
 
   const load = useCallback(async (at: { latitude: number; longitude: number }) => {
     try {
@@ -47,6 +51,10 @@ export default function Nearby() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const locate = useCallback(async () => {
+    if (demo) {
+      setCenter(DEMO_CENTER);
+      return load(DEMO_CENTER);
+    }
     try {
       const perm = await Location.requestForegroundPermissionsAsync();
       if (perm.status !== 'granted') return setLocError(true);
@@ -60,7 +68,7 @@ export default function Nearby() {
     } catch {
       setLocError(true);
     }
-  }, [load]);
+  }, [load, demo]);
 
   useEffect(() => {
     // Fetching on mount: every state update inside locate() happens after an await.

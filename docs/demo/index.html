@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Nagrik live demo</title>
+<meta name="description" content="Nagrik: snap a civic problem and AI agents find the right government office, write the complaint, file it and follow it up. Try the live demo in your browser, no sign-up." />
+<meta property="og:title" content="Nagrik: AI agents that file and follow up civic complaints" />
+<meta property="og:description" content="Six AI agents, a headless browser that files on the portal, and escalations the citizen approves. Try the live demo, no sign-up." />
+<meta property="og:image" content="samples/pothole.jpg" />
+<meta name="theme-color" content="#0F766E" />
+<link rel="icon" href="app/favicon.ico" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #F4FAF8; --card: #FFFFFF; --ink: #10201E; --soft: #4B5F5C; --faint: #7D8F8C; --line: #DCEBE7;
+    --brand: #0F766E; --brand-deep: #0B4F4A; --brand-soft: #E3F4F0; --amber: #FFF4DB; --amber-ink: #6B4A00; --ok: #15803D;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0B1514; --card: #12201E; --ink: #E6F2EF; --soft: #A7BCB8; --faint: #7A8F8B; --line: #22332F;
+      --brand: #2DD4BF; --brand-deep: #0F766E; --brand-soft: #133A35; --amber: #3A2E12; --amber-ink: #F7D58A; --ok: #4ADE80;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0B1514; --card: #12201E; --ink: #E6F2EF; --soft: #A7BCB8; --faint: #7A8F8B; --line: #22332F;
+    --brand: #2DD4BF; --brand-deep: #0F766E; --brand-soft: #133A35; --amber: #3A2E12; --amber-ink: #F7D58A; --ok: #4ADE80;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif; line-height: 1.55; }
+  a { color: var(--brand); }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 0 16px; }
+  .top { background: linear-gradient(150deg, #0B4F4A, #0F766E 60%, #14877E); color: #fff; padding-bottom: 56px; }
+  nav { display: flex; align-items: center; justify-content: space-between; padding: 20px 0; }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 20px; }
+  .logo span { width: 36px; height: 36px; border-radius: 11px; background: rgba(255,255,255,.18); display: grid; place-items: center; }
+  nav a { color: #D1FAE5; text-decoration: none; font-weight: 600; font-size: 15px; }
+  header { display: grid; grid-template-columns: 1.15fr 1fr; gap: 40px; align-items: center; padding-top: 28px; }
+  h1 { font-size: clamp(32px, 5vw, 50px); line-height: 1.08; letter-spacing: -0.02em; margin: 0 0 18px; }
+  h1 em { font-style: normal; color: #FCD34D; }
+  .lede { font-size: 18px; color: #D1FAE5; margin: 0 0 26px; max-width: 34em; }
+  .ctas { display: flex; flex-wrap: wrap; gap: 12px; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 14px 22px; border-radius: 999px; font-weight: 700; font-size: 16px; text-decoration: none; }
+  .btn.primary { background: #FCD34D; color: #3B2A00; box-shadow: 0 10px 28px rgba(0,0,0,.22); }
+  .btn.ghost { background: rgba(255,255,255,.12); color: #fff; border: 1.5px solid rgba(255,255,255,.35); }
+  .note { font-size: 13.5px; color: #A7E3D6; margin: 14px 0 0; max-width: 36em; }
+  .phone { justify-self: center; width: min(320px, 100%); background: #fff; color: #10201E; border-radius: 30px; padding: 14px; box-shadow: 0 30px 70px rgba(0,0,0,.35); }
+  .phone img { width: 100%; aspect-ratio: 4/3; object-fit: cover; border-radius: 18px; display: block; }
+  .step { display: flex; gap: 10px; align-items: flex-start; padding: 9px 4px; font-size: 14px; border-bottom: 1px solid #E5EFEC; }
+  .step:last-child { border-bottom: 0; }
+  .dot { flex: none; width: 22px; height: 22px; border-radius: 50%; background: #E3F4F0; color: #0F766E; display: grid; place-items: center; font-size: 12px; font-weight: 800; }
+  .step b { display: block; font-size: 14px; }
+  .step small { color: #4B5F5C; }
+  section { padding: 52px 0 8px; }
+  h2 { font-size: 28px; letter-spacing: -0.01em; margin: 0 0 8px; }
+  .sub { color: var(--soft); margin: 0 0 26px; max-width: 46em; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .grid.two { grid-template-columns: repeat(2, 1fr); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 20px; }
+  .card h3 { margin: 6px 0 6px; font-size: 17px; }
+  .card p { margin: 0; color: var(--soft); font-size: 14.5px; }
+  .tag { display: inline-block; font-size: 12px; font-weight: 700; color: var(--brand); background: var(--brand-soft); border-radius: 999px; padding: 3px 10px; }
+  ol.try { margin: 0; padding: 0; list-style: none; counter-reset: t; display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  ol.try li { counter-increment: t; background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 18px 18px 18px 64px; position: relative; }
+  ol.try li::before { content: counter(t); position: absolute; left: 18px; top: 18px; width: 32px; height: 32px; border-radius: 10px; background: var(--brand); color: #fff; display: grid; place-items: center; font-weight: 800; }
+  ol.try b { display: block; margin-bottom: 2px; }
+  ol.try span { color: var(--soft); font-size: 14.5px; }
+  .flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+  .agent { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px; position: relative; }
+  .agent b { display: block; font-size: 15px; margin-bottom: 4px; }
+  .agent span { color: var(--soft); font-size: 13.5px; }
+  .rule { background: var(--amber); color: var(--amber-ink); border-radius: 18px; padding: 18px 20px; margin: 18px 0 20px; font-size: 16px; }
+  ul.safe { margin: 0; padding-left: 20px; columns: 2; column-gap: 36px; }
+  ul.safe li { margin-bottom: 10px; break-inside: avoid; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 18px; text-align: center; }
+  .stat b { display: block; font-size: 30px; font-weight: 800; color: var(--brand); }
+  .stat span { color: var(--soft); font-size: 14px; }
+  .stack { display: flex; flex-wrap: wrap; gap: 10px; }
+  .chip { background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 7px 14px; font-weight: 600; font-size: 14px; }
+  .final { text-align: center; margin: 56px 0 32px; padding: 48px 20px; border-radius: 28px; background: linear-gradient(150deg, #0B4F4A, #0F766E); color: #fff; }
+  .final p { color: #D1FAE5; }
+  .credits { color: var(--faint); font-size: 12.5px; }
+  .credits a { color: var(--faint); }
+  footer { color: var(--faint); font-size: 13px; text-align: center; padding: 8px 0 40px; }
+  @media (max-width: 860px) {
+    header { grid-template-columns: 1fr; }
+    .flow { grid-template-columns: 1fr 1fr; }
+    .grid, .stats { grid-template-columns: 1fr 1fr; }
+    ol.try, .grid.two { grid-template-columns: 1fr; }
+    ul.safe { columns: 1; }
+  }
+  @media (max-width: 520px) {
+    .grid, .flow { grid-template-columns: 1fr; }
+    nav a.hide-sm { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="wrap">
+    <nav>
+      <div class="logo"><span aria-hidden="true">⚑</span>Nagrik</div>
+      <div style="display:flex;gap:18px"><a class="hide-sm" href="#try">What to try</a><a href="https://github.com/SaiPranav13188/Nagrik">GitHub</a></div>
+    </nav>
+    <header>
+      <div>
+        <h1>Snap a civic problem. <em>AI agents file it and follow it up.</em></h1>
+        <p class="lede">Nagrik is an Android app for Indian towns. Photograph a pothole, broken streetlight, garbage dump or blocked drain: agents work out which municipal office is responsible, write a formal complaint, file it on the grievance portal with a headless browser, check on it, and draft an escalation when nothing happens.</p>
+        <div class="ctas">
+          <a class="btn primary" href="app/?demo=1">▶ Open the live demo</a>
+          <a class="btn ghost" href="#how">How it works</a>
+        </div>
+        <p class="note">No sign-up and nothing to install: you get your own sample account with four complaints. Everything goes to a practice copy of the municipal portal, never to a real office, and the account is deleted after 24 hours. The first load can take up to a minute while the free server wakes up.</p>
+      </div>
+      <div class="phone" aria-label="Example: what happens to one complaint">
+        <img src="samples/pothole.jpg" alt="A large water-filled pothole on a town road" />
+        <div class="step"><span class="dot">1</span><div><b>Pothole / damaged road · high severity</b><small>Read from the photo, 94% confident</small></div></div>
+        <div class="step"><span class="dot">2</span><div><b>Engineering Section (Roads), Wanaparthy</b><small>From the verified office directory</small></div></div>
+        <div class="step"><span class="dot">3</span><div><b>Formal letter drafted</b><small>Filed on the portal: ref. WNP/2026/000412</small></div></div>
+        <div class="step"><span class="dot">4</span><div><b>No action in 10 days</b><small>Escalation to the Commissioner, sent only when you approve</small></div></div>
+      </div>
+    </header>
+  </div>
+</div>
+
+<div class="wrap">
+  <section id="try">
+    <h2>What to try in the demo</h2>
+    <p class="sub">The sample account opens with complaints at every stage, so you can see the whole life of a complaint in a few minutes.</p>
+    <ol class="try">
+      <li><b>File the drainage complaint</b><span>It's marked "Ready to file". Tap Submit and the Submission agent opens the portal in a headless browser, fills the form with the photo, and captures the grievance number.</span></li>
+      <li><b>Approve an escalation</b><span>The street light complaint got no response for 14 days, so the Monitoring agent drafted a letter to the Municipal Commissioner. Read it, edit it, and send it.</span></li>
+      <li><b>Check a status</b><span>On the pothole complaint, tap "Check status now". The agent reads the live status from the portal and adds it to the timeline.</span></li>
+      <li><b>Report a new problem</b><span>Tap Report and pick one of the sample photos (or upload your own). Watch the agents classify it, route it and write the letter.</span></li>
+    </ol>
+    <p class="sub" style="margin-top:16px">Also worth a look: switch the language to Telugu or Hindi on the welcome screen, ask the Help assistant a question, and open the agent activity timeline on any complaint.</p>
+  </section>
+
+  <section id="how">
+    <h2>How the AI works</h2>
+    <p class="sub">A coordinator runs five specialised agents. Each is a tool-calling loop (Vercel AI SDK + Google Gemini) where the model picks its next action. Every tool call is logged.</p>
+    <div class="flow">
+      <div class="agent"><b>Intake</b><span>Reads the photo: issue type, severity, address. Spots the same problem already reported nearby.</span></div>
+      <div class="agent"><b>Jurisdiction</b><span>Finds the responsible office in a verified directory, or proposes one from official .gov.in sources for admin review.</span></div>
+      <div class="agent"><b>Drafting</b><span>Writes a formal letter in the format that office expects, without inventing facts.</span></div>
+      <div class="agent"><b>Submission</b><span>Files on the portal with Playwright and captures the reference number. Stops at any CAPTCHA or OTP.</span></div>
+      <div class="agent"><b>Monitoring</b><span>A daily job checks status on the portal and drafts an escalation when nothing moves.</span></div>
+    </div>
+    <div class="rule">🛡️ <b>Safety rules live in the code, not in the prompt.</b> A model can't talk its way around them.</div>
+    <ul class="safe">
+      <li><b>No email without approval.</b> Agents can only save escalation drafts. Sending needs the citizen to approve that exact text.</li>
+      <li><b>No invented offices.</b> New departments need an official government source and stay pending until an admin approves them.</li>
+      <li><b>No fake filings.</b> A complaint is recorded as filed only if a form was really submitted in that run.</li>
+      <li><b>CAPTCHAs are never bypassed.</b> The complaint is handed back to the citizen with the letter ready to paste.</li>
+      <li><b>Prompt injection is treated as data.</b> Instructions hidden in a note or address are stripped, and the tool checks hold even if a model is fooled.</li>
+      <li><b>Real portals need the citizen's tap.</b> Auto-filing only happens on portals the citizen has confirmed.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Tested, not trusted</h2>
+    <p class="sub">GitHub Actions runs the failure-mode tests and an agent evaluation on every push, and the build fails if any check fails or the eval scores drop. The AWS deploy only ships a build that passed.</p>
+    <div class="stats">
+      <div class="stat"><b>47</b><span>failure-mode checks: portal down, CAPTCHA, bad photos, prompt injection</span></div>
+      <div class="stat"><b>40</b><span>messy test complaints: typos, Hinglish, romanised Telugu</span></div>
+      <div class="stat"><b>6</b><span>agents, every tool call logged and traced</span></div>
+      <div class="stat"><b>3</b><span>languages: English, Telugu and Hindi</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Built with</h2>
+    <p class="sub">Full stack: mobile app, API, agents, browser automation, queues and cloud deployment.</p>
+    <div class="stack">
+      <span class="chip">React Native (Expo)</span><span class="chip">TypeScript</span><span class="chip">Expo Router</span>
+      <span class="chip">Node.js + Express</span><span class="chip">Vercel AI SDK</span><span class="chip">Google Gemini</span><span class="chip">Playwright</span>
+      <span class="chip">Supabase (Postgres, Auth, Storage)</span><span class="chip">Redis + BullMQ</span><span class="chip">Langfuse tracing</span>
+      <span class="chip">MCP server</span><span class="chip">Docker</span><span class="chip">Render</span><span class="chip">AWS ECS Fargate</span><span class="chip">GitHub Actions</span>
+    </div>
+  </section>
+
+  <section>
+    <div class="grid two">
+      <div class="card"><span class="tag">In the demo</span><h3>Everything the app does</h3><p>Photo analysis, routing, drafting, filing on the practice portal, status checks, escalations, the nearby map, the help assistant and all three languages.</p></div>
+      <div class="card"><span class="tag">Android app only</span><h3>Phone features</h3><p>Taking a photo with the camera, live GPS, voice input and push notifications. In the browser you upload a photo and the location comes with the sample.</p></div>
+    </div>
+  </section>
+
+  <div class="final">
+    <h2>See it for yourself</h2>
+    <p>File a complaint, approve an escalation and watch the agents work. It takes about five minutes.</p>
+    <a class="btn primary" href="app/?demo=1">▶ Open the live demo</a>
+  </div>
+
+  <p class="credits">Sample photos, from Wikimedia Commons:
+    pothole by <a href="https://commons.wikimedia.org/wiki/File:Roads_in_Bihar_have_potholes.jpg">Savant dev</a> (CC BY-SA 4.0);
+    garbage by <a href="https://commons.wikimedia.org/wiki/File:India_-_Sights_%26_Culture_-_Common_garbage_dump_outside_a_temple_(2566331277).jpg">McKay Savage</a> (CC BY 2.0);
+    open drain by <a href="https://commons.wikimedia.org/wiki/File:Open_sewer_(2731597018).jpg">SuSanA Secretariat</a> (CC BY 2.0);
+    street light by <a href="https://commons.wikimedia.org/wiki/File:Broken_lamppost_-_streetlight_on_A899_Livingston_Road_-_geograph.org.uk_-_957464.jpg">Simon Johnston</a> (CC BY-SA 2.0).
+    Resized; metadata removed.</p>
+  <footer>Nagrik is an independent project. It is not affiliated with any government body. · <a href="../privacy/">Privacy policy</a></footer>
+</div>
+</body>
+</html>

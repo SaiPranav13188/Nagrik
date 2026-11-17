@@ -56,7 +56,7 @@ export interface Repo {
   /** Complaints within a bounding box (callers refine by exact distance). */
   listComplaintsInBox(box: { minLat: number; maxLat: number; minLng: number; maxLng: number }, limit: number): Promise<Complaint[]>;
 
-  addStatusCheck(s: Omit<StatusCheck, 'id' | 'checked_at'>): Promise<StatusCheck>;
+  addStatusCheck(s: Omit<StatusCheck, 'id' | 'checked_at'> & { checked_at?: string }): Promise<StatusCheck>;
   listStatusChecks(complaintId: string): Promise<StatusCheck[]>;
 
   addEscalation(e: NewEscalation): Promise<Escalation>;
@@ -68,7 +68,7 @@ export interface Repo {
   /** Removes the profile, complaints, supports and notifications of this user (account deletion). */
   deleteUserData(userId: string): Promise<void>;
 
-  addToolLog(l: Omit<ToolLog, 'id' | 'created_at'>): Promise<void>;
+  addToolLog(l: Omit<ToolLog, 'id' | 'created_at'> & { created_at?: string }): Promise<void>;
   listToolLogs(opts: { complaintId?: string; limit?: number; toolName?: string }): Promise<ToolLog[]>;
 
   addNotification(n: Omit<Notification, 'id' | 'created_at' | 'read'>): Promise<Notification>;

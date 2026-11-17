@@ -169,7 +169,7 @@ export class SupabaseRepo implements Repo {
     ) as Complaint[];
   }
 
-  async addStatusCheck(s: Omit<StatusCheck, 'id' | 'checked_at'>) {
+  async addStatusCheck(s: Omit<StatusCheck, 'id' | 'checked_at'> & { checked_at?: string }) {
     return must(await this.client.from('complaint_status_checks').insert(s).select().single(), 'addStatusCheck') as StatusCheck;
   }
 
@@ -229,7 +229,7 @@ export class SupabaseRepo implements Repo {
     for (const id of supported) await this.syncCount(id);
   }
 
-  async addToolLog(l: Omit<ToolLog, 'id' | 'created_at'>) {
+  async addToolLog(l: Omit<ToolLog, 'id' | 'created_at'> & { created_at?: string }) {
     const res = await this.client.from('agent_tool_logs').insert(l);
     if (res.error) console.error('[agent_tool_logs] insert failed', res.error.message);
   }

@@ -27,12 +27,17 @@ interface AuthValue {
   refreshProfile: () => Promise<Profile | null>;
   setProfile: (p: Profile) => void;
   startLocalSession: () => Promise<void>;
+  /** "Try the demo": a throwaway account with sample complaints, deleted after 24 hours. */
+  startDemo: () => Promise<void>;
   sendEmailCode: (email: string) => Promise<void>;
   verifyEmailCode: (email: string, code: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthValue | null>(null);
+
+export const DEMO_DOMAIN = 'demo.nagrik.invalid';
+export const isDemoProfile = (p: Profile | null) => !!p?.email?.endsWith(`@${DEMO_DOMAIN}`);
 
 export function isProfileComplete(p: Profile | null) {
   return !!(p?.full_name && p.phone);
@@ -125,6 +130,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setStatus('signedIn');
   }, []);
 
+  const startDemo = useCallback(async () => {
+    const d = await api.startDemo();
+    if (d.mode === 'supabase') {
+      if (!supabase) throw new Error('Sign-in is not configured');
+      const { error } = await supabase.auth.signInWithPassword({ email: d.email, password: d.password });
+      if (error) throw error;
+    } else {
+      localToken.current = d.token;
+      await secure.set(TOKEN_KEY, d.token);
+    }
+    await onboardingFlags.setNotifAsked(); // push notifications aren't part of the demo
+    setStatus('signedIn');
+    await refreshProfile();
+  }, [refreshProfile]);
+
   const sendEmailCode = useCallback(async (email: string) => {
     if (!supabase) throw new Error('Email sign-in is not configured');
     const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
@@ -160,11 +180,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       refreshProfile,
       setProfile,
       startLocalSession,
+      startDemo,
       sendEmailCode,
       verifyEmailCode,
       signOut,
     }),
-    [status, profile, profileError, refreshProfile, startLocalSession, sendEmailCode, verifyEmailCode, signOut],
+    [status, profile, profileError, refreshProfile, startLocalSession, startDemo, sendEmailCode, verifyEmailCode, signOut],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

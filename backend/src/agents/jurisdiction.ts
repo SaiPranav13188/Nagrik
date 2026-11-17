@@ -6,6 +6,7 @@ import { repo } from '../db/index.js';
 import { ISSUE_TYPES, type Complaint, type IssueType, type Jurisdiction } from '../db/types.js';
 import { noteGeminiError, textModel, type AgentDefinition } from '../ai/runtime.js';
 import { inferPlace } from '../services/citizenText.js';
+import { isDemoEmail, isDemoUser } from '../services/demo.js';
 import { getOrSet } from '../redis/cache.js';
 
 export interface JurisdictionInput {
@@ -85,7 +86,9 @@ Portal mode: ${config.portalMode}`;
           const city = known?.city ?? rawCity;
           const state = known?.state ?? rawState;
           // The Play review account's password is shared with Google, so it never files for real.
-          const reviewer = config.reviewEmails.includes((await repo.getProfile(complaint.user_id))?.email?.toLowerCase() ?? '');
+          // Demo accounts are used by anyone on the internet, so they never file for real either.
+          const email = (await repo.getProfile(complaint.user_id))?.email?.toLowerCase() ?? '';
+          const reviewer = config.reviewEmails.includes(email) || isDemoEmail(email);
           const sandbox = config.portalMode === 'sandbox' || reviewer;
           const q = { city, state: state ?? undefined, issueType: issue_type as IssueType, sandbox };
           let approved = await approvedOffices(q);
@@ -184,6 +187,10 @@ Portal mode: ${config.portalMode}`;
           if (!j) return { error: 'Unknown portal_id — use one returned by lookup_jurisdiction or propose_new_jurisdiction.' };
           if (j.issue_type !== complaint.issue_type && j.issue_type !== 'other') {
             return { error: `Portal ${portal_id} is mapped for ${j.issue_type}, complaint is ${complaint.issue_type}.` };
+          }
+          // Enforced here, not in the prompt: a demo complaint can only ever reach the sandbox portal.
+          if (!j.is_sandbox && (await isDemoUser(complaint.user_id))) {
+            return { error: 'This is a demo account: only sandbox portals can be assigned. Use one from lookup_jurisdiction, or call report_no_jurisdiction.' };
           }
           await repo.updateComplaint(complaint.id, { jurisdiction_portal_id: j.id, jurisdiction_department: j.department_name });
           return { assigned: true, department: j.department_name, trusted: j.review_status === 'approved', reasoning };

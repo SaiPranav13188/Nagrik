@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Animated, Easing, Linking, Pressable, View } from 'react-native';
+import { Animated, Easing, Linking, Platform, Pressable, View } from 'react-native';
+import { Alert } from '../lib/alert';
 import { KeyboardAvoidingView, KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
@@ -16,6 +17,8 @@ import { VoiceButton } from '../components/VoiceButton';
 import { IssuePreview } from '../components/community';
 import { readBase64 } from '../lib/media';
 import { api, errorMessage } from '../lib/api';
+import { isDemoProfile, useAuth } from '../lib/auth';
+import { DEMO_SAMPLES_URL } from '../lib/config';
 import { useI18n, type TKey } from '../lib/i18n';
 import { ISSUE_META } from '../lib/format';
 import type { IssueType, NearbyItem } from '../lib/types';
@@ -70,6 +73,11 @@ async function addressLabel(latitude: number, longitude: number): Promise<string
   return null;
 }
 
+/** Web demo only: freely licensed sample photos (credits on the demo site), so visitors without a photo can try it. */
+const SAMPLE_PHOTOS = ['pothole', 'garbage', 'drainage', 'streetlight'] as const;
+// Near Wanaparthy's main road, away from the demo account's sample complaints (so it isn't a "duplicate").
+const SAMPLE_SPOT = { latitude: 16.358, longitude: 78.059 };
+
 const ANALYZE_STEPS: TKey[] = ['analyzing1', 'analyzing2', 'analyzing3', 'analyzing4'];
 
 export default function Report() {
@@ -77,6 +85,8 @@ export default function Report() {
   const { t, lang } = useI18n();
   const toast = useToast();
   const insets = useSafeAreaInsets();
+  const { profile } = useAuth();
+  const showSamples = Platform.OS === 'web' && isDemoProfile(profile);
 
   const [photo, setPhoto] = useState<string | null>(null);
   const [photoBase64, setPhotoBase64] = useState<string | null>(null);
@@ -168,6 +178,16 @@ export default function Report() {
       // No saved location: the citizen may not be at the spot now, so don't assume — ask.
       else if (loc.kind !== 'manual') setLocation({ kind: 'choose' });
     }
+  };
+
+  const pickSample = (name: (typeof SAMPLE_PHOTOS)[number]) => {
+    setPhoto(`${DEMO_SAMPLES_URL}/${name}.jpg`);
+    setPhotoBase64(null); // uploaded from the URL as a file
+    const seq = ++locSeq.current;
+    setLoc({ kind: 'gps', ...SAMPLE_SPOT, accuracy: null, label: t('sampleLocation'), source: 'photo' });
+    void addressLabel(SAMPLE_SPOT.latitude, SAMPLE_SPOT.longitude).then((label) => {
+      if (label && seq === locSeq.current) setLoc({ kind: 'gps', ...SAMPLE_SPOT, accuracy: null, label, source: 'photo' });
+    });
   };
 
   // ───────── analyze ─────────
@@ -276,6 +296,18 @@ export default function Report() {
           </Pressable>
         )}
         {!photo && <Button title={t('chooseGallery')} variant="secondary" icon="images-outline" size="md" onPress={pickPhoto} />}
+        {!photo && showSamples && (
+          <View style={{ gap: space(2) }}>
+            <Text variant="smallStrong" tone="muted">{t('samplePhotos')}</Text>
+            <View style={{ flexDirection: 'row', gap: space(2) }}>
+              {SAMPLE_PHOTOS.map((name) => (
+                <Pressable key={name} onPress={() => pickSample(name)} accessibilityRole="button" accessibilityLabel={`Sample photo: ${name}`} style={{ flex: 1, aspectRatio: 1, borderRadius: radius.md, overflow: 'hidden', borderWidth: 1, borderColor: c.line }}>
+                  <Image source={`${DEMO_SAMPLES_URL}/${name}.jpg`} style={{ width: '100%', height: '100%', backgroundColor: c.surfaceAlt }} contentFit="cover" />
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        )}
         {!photo && (
           <View style={{ flexDirection: 'row', gap: space(2), alignItems: 'center', paddingHorizontal: space(1) }}>
             <Ionicons name="eye-off-outline" size={16} color={c.muted} />

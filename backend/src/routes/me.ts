@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { repo } from '../db/index.js';
 import { forgetUser, issueLocalToken, requireUser } from '../auth.js';
 import { deleteAccount } from '../services/account.js';
+import { createDemoAccount, DemoUnavailable } from '../services/demo.js';
 import { savePhoto } from '../services/storage.js';
 
 export const authRouter = Router();
@@ -19,6 +20,21 @@ authRouter.post(
     const { userId, token } = issueLocalToken(body.data.deviceId);
     const profile = (await repo.getProfile(userId)) ?? (await repo.upsertProfile({ id: userId }));
     res.json({ token, userId, profile });
+  },
+);
+
+// "Try the demo": a throwaway account with sample complaints, deleted after 24 hours. No sign-up.
+authRouter.post(
+  '/demo',
+  rateLimit({ windowMs: 60 * 60 * 1000, limit: 10, message: { error: "You've started a lot of demos. Please try again in an hour." }, standardHeaders: true, legacyHeaders: false }),
+  async (_req, res) => {
+    try {
+      res.status(201).json(await createDemoAccount());
+    } catch (e) {
+      if (e instanceof DemoUnavailable) return res.status(503).json({ error: e.message });
+      console.error('[demo]', (e as Error).message);
+      res.status(500).json({ error: 'Could not start the demo. Please try again.' });
+    }
   },
 );
 

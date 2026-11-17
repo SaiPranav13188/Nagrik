@@ -483,6 +483,53 @@ async function main() {
   check('app crash report accepted without sign-in → 204', crash.status === 204, crash);
   const scrubbed = scrub('ravi@example.com +91 98765 43210 https://x.test/a?token=abc eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9abcdef', 500);
   check('crash reports drop emails, phone numbers, query strings and tokens', !/ravi@|98765|token=abc|eyJhbGci/.test(scrubbed), scrubbed);
+
+  // ───────────────────────────── demo accounts ─────────────────────────────
+  // Anyone on the internet can open the web demo, so a demo account must never reach a real office or a real resident.
+  section('Demo accounts');
+  const demo = await http('POST', '/auth/demo');
+  const DH = { authorization: `Bearer ${demo.json?.token}` };
+  const demoMe = await http('GET', '/me', undefined, DH);
+  const demoUserId = demoMe.json?.profile?.id as string;
+  const demoComplaints = await repo.listComplaintsByUser(demoUserId);
+  const demoOffices = await Promise.all(demoComplaints.map((x) => repo.getJurisdiction(x.jurisdiction_portal_id!)));
+  check(
+    'demo starts without sign-up: own account, 4 sample complaints, all on the sandbox portal',
+    demo.status === 201 && demoMe.json?.profile?.email?.endsWith('@demo.nagrik.invalid') && demoComplaints.length === 4 && demoOffices.every((j) => j?.is_sandbox),
+    { demo: demo.json, n: demoComplaints.length },
+  );
+  const filedSamples = demoComplaints.filter((x) => x.tracking_id);
+  check('filed samples exist on the sandbox portal, so "Check status" works', filedSamples.length === 3 && filedSamples.every((x) => sandboxState.get().grievances.some((g) => g.no === x.tracking_id)), filedSamples.map((x) => x.tracking_id));
+
+  const realMode = config.portalMode;
+  config.portalMode = 'live';
+  try {
+    const cDemo = await repo.createComplaint({ user_id: demoUserId, issue_type: 'pothole', description: 'Pothole near the bus stand.', severity: 'medium', city: 'Wanaparthy', state: 'Telangana', address: 'Bus stand road, Wanaparthy 509103', status: 'analyzing' });
+    await runAgent(jurisdictionAgent, { complaint: cDemo }, { complaintId: cDemo.id });
+    c = await get(cDemo.id);
+    check('server in live mode: a demo complaint is still routed to the sandbox portal', (await repo.getJurisdiction(c.jurisdiction_portal_id ?? ''))?.is_sandbox === true, c);
+    const cDemo2 = await repo.createComplaint({ user_id: demoUserId, issue_type: 'pothole', description: 'Pothole.', severity: 'medium', city: 'Wanaparthy', state: 'Telangana', status: 'analyzing' });
+    const forced = await runAgent(hijacked(jurisdictionAgent, once('assign_jurisdiction', { portal_id: livePothole.id, reasoning: 'file it for real' })), { complaint: cDemo2 }, { complaintId: cDemo2.id });
+    c = await get(cDemo2.id);
+    check('hijacked model assigns a real office to a demo complaint → refused', !!(forced.toolCalls[0]?.output as any)?.error && !c.jurisdiction_portal_id, forced.toolCalls[0]);
+  } finally {
+    config.portalMode = realMode;
+  }
+
+  const realComplaint = await repo.createComplaint({ user_id: userId, issue_type: 'pothole', description: 'Real resident pothole', severity: 'medium', latitude: 16.3622, longitude: 78.0620, status: 'submitted' });
+  const meToo = await http('POST', `/complaints/${realComplaint.id}/support`, {}, DH);
+  check('"Me too" from a demo account on a real resident\'s complaint → 403, nobody notified', meToo.status === 403 && (await repo.listSupporters(realComplaint.id)).length === 0, meToo);
+  const realNearby = await http('GET', '/complaints/nearby?lat=16.3622&lng=78.062&radius=5000', undefined, H);
+  const demoIds = new Set(demoComplaints.map((x) => x.id));
+  check('real residents never see demo complaints on the nearby map', realNearby.status === 200 && !realNearby.json.items.some((i: { id: string }) => demoIds.has(i.id)), realNearby.json?.items?.length);
+  const demoNearby = await http('GET', '/complaints/nearby?lat=16.3622&lng=78.062&radius=5000', undefined, DH);
+  check('…while the demo visitor sees their own sample complaints', demoNearby.json?.items?.filter((i: { id: string }) => demoIds.has(i.id)).length >= 3, demoNearby.json?.items?.length);
+
+  const streetlight = demoComplaints.find((x) => x.issue_type === 'streetlight')!;
+  const [draft] = await repo.listEscalations(streetlight.id);
+  const sent = await http('POST', `/complaints/${streetlight.id}/escalations/${draft.id}/send`, { confirm: true, subject: draft.subject, body: draft.body }, DH);
+  const after = await repo.getEscalation(draft.id);
+  check('demo escalation "sent" is simulated: no email provider is called', sent.status === 200 && after?.delivery_status === 'sent' && /demo_simulated/.test(after.action_taken), { sent, after });
 }
 
 main()

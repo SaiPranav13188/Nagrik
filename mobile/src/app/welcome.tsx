@@ -1,5 +1,5 @@
-import React, { useRef, useState } from 'react';
-import { FlatList, Pressable, View, useWindowDimensions } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { FlatList, Platform, Pressable, View, useWindowDimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -20,13 +20,34 @@ const SLIDES: { icon: keyof typeof Ionicons.glyphMap; title: TKey; body: TKey; c
 export default function Welcome() {
   const { c } = useTheme();
   const { t, lang, setLang } = useI18n();
-  const { mode, startLocalSession } = useAuth();
+  const { mode, startLocalSession, startDemo } = useAuth();
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const [index, setIndex] = useState(0);
   const [busy, setBusy] = useState(false);
   const list = useRef<FlatList>(null);
+  const [demoBusy, setDemoBusy] = useState(false);
+
+  const tryDemo = async () => {
+    setDemoBusy(true);
+    try {
+      await startDemo();
+    } catch (e) {
+      toast(errorMessage(e, t('offline'), t('somethingWrong')), 'error');
+      setDemoBusy(false);
+    }
+  };
+
+  // The demo website links here with ?demo=1, so visitors land straight in their sample account.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined' || !new URLSearchParams(window.location.search).has('demo')) return;
+    const id = setTimeout(() => {
+      window.history.replaceState(null, '', window.location.pathname);
+      void tryDemo();
+    }, 0);
+    return () => clearTimeout(id);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const next = async () => {
     if (index < SLIDES.length - 1) {
@@ -117,7 +138,11 @@ export default function Welcome() {
             <View key={i} style={{ width: i === index ? 22 : 7, height: 7, borderRadius: 4, backgroundColor: i === index ? c.primary : c.line }} />
           ))}
         </View>
-        <Button title={index < SLIDES.length - 1 ? t('continue') : t('getStarted')} icon="arrow-forward" iconPosition="right" onPress={next} loading={busy} />
+        <Button title={index < SLIDES.length - 1 ? t('continue') : t('getStarted')} icon="arrow-forward" iconPosition="right" onPress={next} loading={busy} disabled={demoBusy} />
+        <View style={{ gap: space(2) }}>
+          <Button title={demoBusy ? t('demoStarting') : t('tryDemo')} variant="secondary" icon="sparkles-outline" onPress={tryDemo} loading={demoBusy} disabled={busy} />
+          <Text variant="small" tone="muted" style={{ textAlign: 'center' }}>{t('demoNote')}</Text>
+        </View>
       </View>
     </View>
   );

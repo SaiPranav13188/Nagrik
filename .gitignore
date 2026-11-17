@@ -7,3 +7,6 @@ node_modules/
 # Firebase service-account keys (never commit)
 *firebase-adminsdk*.json
 *service-account*.json
+
+# The web demo export (GitHub Pages) keeps its fonts and images under assets/node_modules.
+!docs/demo/app/assets/node_modules/

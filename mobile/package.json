@@ -56,7 +56,8 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
-    "start:dev-build": "expo start --dev-client"
+    "start:dev-build": "expo start --dev-client",
+    "build:web-demo": "node scripts/build-web-demo.mjs"
   },
   "private": true
 }

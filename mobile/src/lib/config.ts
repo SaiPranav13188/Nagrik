@@ -19,6 +19,8 @@ export const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? ''
 export const USE_SUPABASE_AUTH = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 export const EAS_PROJECT_ID: string | undefined =
   (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId ?? Constants.easConfig?.projectId;
+/** The web demo's sample photos (hosted next to the web app on GitHub Pages). */
+export const DEMO_SAMPLES_URL = (process.env.EXPO_PUBLIC_DEMO_SAMPLES_URL ?? 'https://saipranav13188.github.io/Nagrik/demo/samples').replace(/\/$/, '');
 export const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
 export const SUPPORT_EMAIL = 'saipranav1388@gmail.com';
 

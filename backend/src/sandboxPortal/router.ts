@@ -117,6 +117,21 @@ export const sandboxState = {
     save();
     return g;
   },
+  /** Registers a grievance directly (demo accounts' sample complaints). Returns its grievance number. */
+  register(g: Pick<Grievance, 'name' | 'mobile' | 'category' | 'subject' | 'description' | 'location' | 'lat' | 'lng' | 'status' | 'remarks' | 'createdAt'>) {
+    state.seq += 1;
+    const no = `WNP/${new Date(g.createdAt).getFullYear()}/${String(state.seq).padStart(6, '0')}`;
+    state.grievances.push({ ...g, no, email: '', hasPhoto: true, updatedAt: g.createdAt });
+    save();
+    return no;
+  },
+  /** Drops grievances (when a demo account expires), so the state file stays small. */
+  remove(nos: string[]) {
+    if (!nos.length) return;
+    const drop = new Set(nos);
+    state.grievances = state.grievances.filter((g) => !drop.has(g.no));
+    save();
+  },
 };
 
 const CATEGORIES: Array<[string, string]> = [
